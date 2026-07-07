@@ -1,0 +1,51 @@
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass(slots=True)
+class BaseMultiAgentConfig:
+    """多智能体训练与 rollout 的通用超参数。"""
+
+    algorithm_name: str = ""
+    num_agents: int = 2
+    num_generations: int = 4
+    max_turns: int = 4
+    batch_size: int = 1
+    discount: float = 0.99
+    normalize_advantages: bool = True
+
+    temperature: float = 0.6
+    top_p: float = 0.6
+    top_k: Optional[int] = 50
+    max_new_tokens: int = 256
+    do_sample: bool = True
+
+    joint_mode: str = "aligned"
+    early_termination_threshold: Optional[float] = None
+
+
+@dataclass(slots=True)
+class MAGRPOConfig(BaseMultiAgentConfig):
+    """MAGRPO 专属超参数。"""
+
+    algorithm_name: str = "magrpo"
+    advantage_mode: str = "zscore"
+    advantage_epsilon: float = 1e-8
+    clip_range: float = 0.2
+    kl_coef: float = 0.0
+    learning_rate: float = 1e-5
+    update_epochs: int = 1
+    max_grad_norm: Optional[float] = 1.0
+
+
+@dataclass(slots=True)
+class GIG_GRPOConfig(BaseMultiAgentConfig):
+    """GIG-GRPO 专属超参数。"""
+
+    algorithm_name: str = "gig_grpo"
+    advantage_mode: str = "zscore"
+    advantage_epsilon: float = 1e-8
+    clip_range: float = 0.2
+    kl_coef: float = 0.0
+    inner_group_size: Optional[int] = None
+    outer_group_size: Optional[int] = None

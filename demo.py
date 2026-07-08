@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Sequence
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
@@ -13,9 +13,9 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from core.config.config import MAGRPOConfig
+from core.config.config import GIG_GRPOConfig
 from core.environment.coop_human_env import CoopHumanEnv
-from core.trainers.stack_builder import build_magrpo_stack
+from core.trainers.stack_builder import build_gig_grpo_stack
 
 
 QWEN_MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -23,7 +23,7 @@ DEFAULT_TORCH_DTYPE = torch.bfloat16
 DEFAULT_DEVICE_MAP = "auto"
 
 
-def build_demo_dataset() -> List[Dict[str, Any]]:
+def build_demo_dataset() -> List[Dict[str, object]]:
     return [
         {
             "id": "task-1",
@@ -77,8 +77,8 @@ def build_transition_function() -> Callable[..., List[str]]:
     return transition_fn
 
 
-def build_formatters() -> Sequence[Callable[[Dict[str, Any]], str]]:
-    def formatter_agent_0(item: Dict[str, Any]) -> str:
+def build_formatters() -> Sequence[Callable[[Dict[str, object]], str]]:
+    def formatter_agent_0(item: Dict[str, object]) -> str:
         return "\n".join(
             [
                 "You are Agent A, a Python coding specialist.",
@@ -87,7 +87,7 @@ def build_formatters() -> Sequence[Callable[[Dict[str, Any]], str]]:
             ]
         )
 
-    def formatter_agent_1(item: Dict[str, Any]) -> str:
+    def formatter_agent_1(item: Dict[str, object]) -> str:
         return "\n".join(
             [
                 "You are Agent B, a Python reviewer-coder.",
@@ -158,10 +158,10 @@ def build_demo_env() -> CoopHumanEnv:
     )
 
 
-def build_demo_config() -> MAGRPOConfig:
-    return MAGRPOConfig(
+def build_demo_config() -> GIG_GRPOConfig:
+    return GIG_GRPOConfig(
         num_agents=2,
-        num_generations=1,
+        num_generations=4,
         max_turns=1,
         batch_size=1,
         discount=0.99,
@@ -175,6 +175,13 @@ def build_demo_config() -> MAGRPOConfig:
         learning_rate=2e-5,
         update_epochs=1,
         max_grad_norm=1.0,
+        inner_group_size=2,
+        outer_group_size=4,
+        contribution_mode="counterfactual",
+        task_combination="linear",
+        contribution_lambda=1.0,
+        contribution_mix_alpha=0.0,
+        counterfactual_anchor_coef=0.25,
     )
 
 
@@ -183,8 +190,8 @@ def save_lora_adapters(
     tokenizers: Sequence[PreTrainedTokenizerBase],
 ) -> None:
     output_dirs = [
-        "outputs/magrpo_agent_a_lora",
-        "outputs/magrpo_agent_b_lora",
+        "outputs/gig_grpo_agent_a_lora",
+        "outputs/gig_grpo_agent_b_lora",
     ]
     for model, tokenizer, output_dir in zip(models, tokenizers, output_dirs):
         model.save_pretrained(output_dir)
@@ -201,7 +208,7 @@ def run_demo(rounds: int = 10) -> None:
     agents = [agent_a, agent_b]
     tokenizers = [tokenizer_a, tokenizer_b]
 
-    stack = build_magrpo_stack(
+    stack = build_gig_grpo_stack(
         config=config,
         agents=agents,
         tokenizers=tokenizers,
@@ -209,7 +216,7 @@ def run_demo(rounds: int = 10) -> None:
         train_dataset=dataset,
     )
 
-    print("Starting 24GB-friendly MAGRPO demo training...")
+    print("Starting 24GB-friendly counterfactual GIG-GRPO demo training...")
     print(f"Config: {asdict(config)}")
 
     for round_idx in range(1, rounds + 1):
@@ -226,6 +233,9 @@ def run_demo(rounds: int = 10) -> None:
                 "updated": None if update_output is None else update_output.updated,
                 "mean_return": metrics.get("mean_return"),
                 "mean_advantage": metrics.get("mean_advantage"),
+                "mean_inner_advantage": metrics.get("mean_inner_advantage"),
+                "mean_counterfactual_score": metrics.get("mean_counterfactual_score"),
+                "mean_cf_cross": metrics.get("mean_cf_cross"),
                 "mean_policy_loss": metrics.get("mean_policy_loss"),
                 "mean_update_approx_kl": metrics.get("mean_update_approx_kl"),
             }

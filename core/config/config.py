@@ -47,5 +47,14 @@ class GIG_GRPOConfig(BaseMultiAgentConfig):
     advantage_epsilon: float = 1e-8
     clip_range: float = 0.2
     kl_coef: float = 0.0
+    learning_rate: float = 1e-5
+    update_epochs: int = 1
+    max_grad_norm: Optional[float] = 1.0
     inner_group_size: Optional[int] = None
     outer_group_size: Optional[int] = None
+    contribution_mode: str = "hybrid"
+    task_combination: str = "linear"
+    contribution_lambda: float = 1.0
+    contribution_mix_alpha: float = 0.5
+    counterfactual_anchor_coef: float = 0.25
+    no_helper_token: str = "Nohelperutilitycodeavailable"

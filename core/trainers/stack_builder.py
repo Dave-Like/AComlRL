@@ -136,6 +136,10 @@ def build_gig_grpo_stack(
         default_generation_kwargs=generation_kwargs,
     )
     engine = GIGGRPOEngine(config=config)
+    engine.attach_policy_components(
+        policy_models=agents,
+        tokenizers=tokenizers,
+    )
     trainer = GIGGRPOTrainer(
         pipeline=pipeline,
         config=config,

@@ -100,6 +100,7 @@ class GIGGRPOEngine(BaseRLEngine):
             train_samples_by_agent
         )
         metrics = self._build_metrics(update_batches, gig_train_samples_by_agent)
+        advantage_matrices = self._build_advantage_matrices(gig_train_samples_by_agent)
 
         updated = self.policy_updater.is_ready(gig_train_samples_by_agent)
         status = "policy_skeleton_ready"
@@ -125,6 +126,7 @@ class GIGGRPOEngine(BaseRLEngine):
                 "task_combination": self.config.task_combination,
                 "contribution_lambda": float(self.config.contribution_lambda),
                 "contribution_mix_alpha": float(self.config.contribution_mix_alpha),
+                "advantage_matrices": advantage_matrices,
             },
         )
 
@@ -193,4 +195,73 @@ class GIGGRPOEngine(BaseRLEngine):
             "missing_logprob_ratio": stable_mean([
                 1.0 if sample.logprob is None else 0.0 for sample in all_train_samples
             ], 1.0),
+        }
+
+    def _build_advantage_matrices(
+        self,
+        train_samples_by_agent: Dict[int, List[EngineTrainSample]],
+    ) -> Dict[str, Any]:
+        grouped: Dict[str, Dict[int, Dict[int, Dict[str, float]]]] = {}
+
+        for agent_idx, samples in train_samples_by_agent.items():
+            for sample in samples:
+                node_entry = grouped.setdefault(sample.node_id, {})
+                branch_entry = node_entry.setdefault(sample.branch_idx, {})
+                branch_entry[agent_idx] = {
+                    "outer_advantage": float(sample.metadata.get("outer_advantage", 0.0)),
+                    "inner_advantage": float(sample.metadata.get("inner_advantage", 0.0)),
+                    "scaled_inner_advantage": float(sample.metadata.get("scaled_inner_advantage", 0.0)),
+                    "combined_advantage": float(
+                        sample.metadata.get("combined_advantage", sample.normalized_advantage)
+                    ),
+                }
+
+        node_ids = sorted(grouped.keys())
+
+        outer_matrix: List[List[List[float]]] = []
+        inner_matrix: List[List[List[float]]] = []
+        scaled_inner_matrix: List[List[List[float]]] = []
+        combined_matrix: List[List[List[float]]] = []
+
+        for node_id in node_ids:
+            per_branch = grouped[node_id]
+            branch_ids = sorted(per_branch.keys())
+
+            node_outer: List[List[float]] = []
+            node_inner: List[List[float]] = []
+            node_scaled_inner: List[List[float]] = []
+            node_combined: List[List[float]] = []
+
+            for branch_idx in branch_ids:
+                per_agent = per_branch[branch_idx]
+                agent_ids = sorted(per_agent.keys())
+
+                node_outer.append([
+                    float(per_agent[agent_idx]["outer_advantage"])
+                    for agent_idx in agent_ids
+                ])
+                node_inner.append([
+                    float(per_agent[agent_idx]["inner_advantage"])
+                    for agent_idx in agent_ids
+                ])
+                node_scaled_inner.append([
+                    float(per_agent[agent_idx]["scaled_inner_advantage"])
+                    for agent_idx in agent_ids
+                ])
+                node_combined.append([
+                    float(per_agent[agent_idx]["combined_advantage"])
+                    for agent_idx in agent_ids
+                ])
+
+            outer_matrix.append(node_outer)
+            inner_matrix.append(node_inner)
+            scaled_inner_matrix.append(node_scaled_inner)
+            combined_matrix.append(node_combined)
+
+        return {
+            "node_ids": node_ids,
+            "outer_advantage_matrix": outer_matrix,
+            "inner_advantage_matrix": inner_matrix,
+            "scaled_inner_advantage_matrix": scaled_inner_matrix,
+            "combined_advantage_matrix": combined_matrix,
         }

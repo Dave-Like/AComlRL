@@ -174,6 +174,7 @@ def build_lora_model(
         use_fast=False,
         trust_remote_code=True,
     )
+    tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -282,6 +283,10 @@ def run_experiment_round(
     )
     metrics = stack.engine._build_metrics(update_batches, gig_train_samples_by_agent)
 
+    advantage_matrices = stack.engine._build_advantage_matrices(
+        gig_train_samples_by_agent
+    )
+    
     updated = stack.engine.policy_updater.is_ready(gig_train_samples_by_agent)
     status = "policy_skeleton_ready"
     if updated:
@@ -296,6 +301,7 @@ def run_experiment_round(
             "engine_class": stack.engine.__class__.__name__,
             "status": status,
             "config": asdict(stack.engine.config),
+            "advantage_matrices": advantage_matrices,
         },
     )
     stack.trainer.last_update_result = result
@@ -457,6 +463,14 @@ def run_experiment(
             "mean_return": metrics.get("mean_return"),
             "mean_advantage": metrics.get("mean_advantage"),
             "mean_inner_advantage": metrics.get("mean_inner_advantage"),
+            "mean_scaled_inner_advantage": metrics.get("mean_scaled_inner_advantage"),
+            "mean_combined_advantage": metrics.get("mean_combined_advantage"),
+            "mean_abs_outer_advantage": metrics.get("mean_abs_outer_advantage"),
+            "mean_abs_inner_advantage": metrics.get("mean_abs_inner_advantage"),
+            "mean_abs_scaled_inner_advantage": metrics.get("mean_abs_scaled_inner_advantage"),
+            "mean_abs_combined_advantage": metrics.get("mean_abs_combined_advantage"),
+            "mean_inner_scale": metrics.get("mean_inner_scale"),
+            "inner_outer_scale_ratio": metrics.get("inner_outer_scale_ratio"),
             "mean_task_score": metrics.get("mean_task_score"),
             "mean_counterfactual_score": metrics.get("mean_counterfactual_score"),
             "mean_update_approx_kl": metrics.get(
@@ -469,6 +483,12 @@ def run_experiment(
         }
         round_records.append(record)
         print(record)
+        advantage_matrices = update_result.metadata.get("advantage_matrices", {})
+        if advantage_matrices:
+            print("outer_advantage_matrix =", advantage_matrices.get("outer_advantage_matrix"))
+            print("inner_advantage_matrix =", advantage_matrices.get("inner_advantage_matrix"))
+            print("scaled_inner_advantage_matrix =", advantage_matrices.get("scaled_inner_advantage_matrix"))
+            print("combined_advantage_matrix =", advantage_matrices.get("combined_advantage_matrix"))
 
     plot_experiment_metrics(
         output_path,

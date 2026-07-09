@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Sequence
 
 import torch
-from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, PeftModel, TaskType, get_peft_model, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, PreTrainedModel, PreTrainedTokenizerBase
 
 from core.common.types import EngineTrainSample, EngineUpdateResult, RolloutBatch
 from core.config.config import GIG_GRPOConfig
 from core.environment.coop_human_env import CoopHumanEnv
+from core.environment.reset import build_reset_config, resolve_reset_decision
 from core.plot.plot_tool import plot_training_curves, summarize_rewards
 from core.trainers.stack_builder import AlgorithmStack, build_gig_grpo_stack
 
@@ -155,15 +156,57 @@ def build_lora_config() -> LoraConfig:
     return LoraConfig(task_type=TaskType.CAUSAL_LM, r=8, lora_alpha=16, lora_dropout=0.05, target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], bias="none")
 
 
-def build_lora_model(model_name: str) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False, trust_remote_code=True)
+def build_lora_model(
+    model_name: str,
+    *,
+    reset_mode: str = "base",
+    adapter_dir: str | Path | None = None,
+) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
+    reset_config = build_reset_config(
+        mode=reset_mode,
+        resume_adapter_dir=str(adapter_dir) if reset_mode == "resume" and adapter_dir is not None else None,
+        eval_adapter_dir=str(adapter_dir) if reset_mode == "eval" and adapter_dir is not None else None,
+    )
+    decision = resolve_reset_decision(reset_config)
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_fast=False,
+        trust_remote_code=True,
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    base_model = AutoModelForCausalLM.from_pretrained(model_name, quantization_config=build_quantization_config(), device_map=DEFAULT_DEVICE_MAP, torch_dtype=DEFAULT_TORCH_DTYPE, trust_remote_code=True)
+
+    base_model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        quantization_config=build_quantization_config(),
+        device_map=DEFAULT_DEVICE_MAP,
+        torch_dtype=DEFAULT_TORCH_DTYPE,
+        trust_remote_code=True,
+    )
     base_model = prepare_model_for_kbit_training(base_model)
-    lora_model = get_peft_model(base_model, build_lora_config())
-    lora_model.print_trainable_parameters()
-    return lora_model, tokenizer
+
+    if decision.attach_new_lora:
+        model = get_peft_model(base_model, build_lora_config())
+    else:
+        if decision.load_adapter_dir is None:
+            raise ValueError("Adapter directory is required when not creating a fresh LoRA.")
+        model = PeftModel.from_pretrained(
+            base_model,
+            str(decision.load_adapter_dir),
+            is_trainable=decision.trainable,
+        )
+
+    if decision.trainable:
+        model.train()
+        if hasattr(model, "print_trainable_parameters"):
+            model.print_trainable_parameters()
+    else:
+        for parameter in model.parameters():
+            parameter.requires_grad = False
+        model.eval()
+
+    return model, tokenizer
 
 
 def build_experiment_env() -> CoopHumanEnv:
@@ -171,7 +214,39 @@ def build_experiment_env() -> CoopHumanEnv:
 
 
 def build_experiment_config() -> GIG_GRPOConfig:
-    return GIG_GRPOConfig(num_agents=2, num_generations=6, max_turns=2, batch_size=1, discount=0.99, normalize_advantages=True, temperature=0.95, top_p=0.95, top_k=30, max_new_tokens=220, do_sample=True, joint_mode="aligned", learning_rate=2e-5, update_epochs=1, max_grad_norm=1.0, advantage_mode="zscore", inner_group_size=2, outer_group_size=6, contribution_mode="task", task_combination="linear", contribution_lambda=1.25, contribution_mix_alpha=1.0, counterfactual_anchor_coef=0.25)
+    return GIG_GRPOConfig(
+    num_agents=2,
+    num_generations=6,
+    max_turns=2,
+    batch_size=1,
+    discount=0.99,
+    normalize_advantages=True,
+    temperature=0.95,
+    top_p=0.95,
+    top_k=30,
+    max_new_tokens=220,
+    do_sample=True,
+    joint_mode="aligned",
+    learning_rate=1e-5,
+    update_epochs=1,
+    max_grad_norm=1.0,
+    max_safe_kl=2.0,
+    kl_coef=0.02,
+    advantage_mode="zscore",
+    outer_advantage_clip=5.0,
+    inner_advantage_clip=3.0,
+    combined_advantage_clip=5.0,
+    inner_scale_mode="match_outer_mean_abs",
+    min_inner_scale=0.5,
+    max_inner_scale=3.0,
+    inner_group_size=2,
+    outer_group_size=6,
+    contribution_mode="hybrid",
+    task_combination="linear",
+    contribution_lambda=1.25,
+    contribution_mix_alpha=0.6,
+    counterfactual_anchor_coef=0.25,
+    )
 
 def inject_reference_logprob_proxy(
     train_samples_by_agent: Dict[int, List[EngineTrainSample]],
@@ -307,6 +382,9 @@ def run_experiment(
     plot_window: int = DEFAULT_PLOT_WINDOW,
     output_dir: str | Path = Path("outputs") / "gig_grpo_experiment",
     save_adapters: bool = False,
+    reset_mode: str = "base",
+    agent_a_adapter_dir: str | Path | None = None,
+    agent_b_adapter_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -315,8 +393,16 @@ def run_experiment(
     env = build_experiment_env()
     config = build_experiment_config()
 
-    agent_a, tokenizer_a = build_lora_model(QWEN_MODEL_NAME)
-    agent_b, tokenizer_b = build_lora_model(QWEN_MODEL_NAME)
+    agent_a, tokenizer_a = build_lora_model(
+        QWEN_MODEL_NAME,
+        reset_mode=reset_mode,
+        adapter_dir=agent_a_adapter_dir,
+    )
+    agent_b, tokenizer_b = build_lora_model(
+        QWEN_MODEL_NAME,
+        reset_mode=reset_mode,
+        adapter_dir=agent_b_adapter_dir,
+    )
     agents = [agent_a, agent_b]
     tokenizers = [tokenizer_a, tokenizer_b]
 
@@ -337,6 +423,13 @@ def run_experiment(
 
     print("Starting task-structured GIG-GRPO experiment...")
     print(f"Config: {asdict(config)}")
+    print(
+        {
+            "reset_mode": reset_mode,
+            "agent_a_adapter_dir": None if agent_a_adapter_dir is None else str(agent_a_adapter_dir),
+            "agent_b_adapter_dir": None if agent_b_adapter_dir is None else str(agent_b_adapter_dir),
+        }
+    )
 
     for round_idx in range(1, rounds + 1):
         summary, update_result = run_experiment_round(stack)

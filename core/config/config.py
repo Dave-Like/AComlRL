@@ -37,6 +37,8 @@ class MAGRPOConfig(BaseMultiAgentConfig):
     update_epochs: int = 1
     max_grad_norm: Optional[float] = 1.0
 
+    max_safe_kl: Optional[float] = 2.0
+
 
 @dataclass(slots=True)
 class GIG_GRPOConfig(BaseMultiAgentConfig):
@@ -50,6 +52,16 @@ class GIG_GRPOConfig(BaseMultiAgentConfig):
     learning_rate: float = 1e-5
     update_epochs: int = 1
     max_grad_norm: Optional[float] = 1.0
+
+    max_safe_kl: Optional[float] = 2.0
+    outer_advantage_clip: Optional[float] = 5.0
+    inner_advantage_clip: Optional[float] = 3.0
+    combined_advantage_clip: Optional[float] = 5.0
+
+    inner_scale_mode: str = "match_outer_mean_abs"
+    min_inner_scale: float = 0.5
+    max_inner_scale: float = 3.0
+
     inner_group_size: Optional[int] = None
     outer_group_size: Optional[int] = None
     contribution_mode: str = "hybrid"

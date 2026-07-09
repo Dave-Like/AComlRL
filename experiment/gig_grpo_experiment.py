@@ -14,4 +14,5 @@ if __name__ == "__main__":
         plot_window=DEFAULT_PLOT_WINDOW,
         output_dir=DEFAULT_OUTPUT_DIR,
         save_adapters=False,
+        reset_mode="base",
     )

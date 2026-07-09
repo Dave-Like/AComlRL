@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Sequence
 
 import torch
@@ -23,6 +24,7 @@ class MAGRPOPolicyUpdater:
         clip_range: float = 0.2,
         kl_coef: float = 0.0,
         max_grad_norm: float | None = 1.0,
+        max_safe_kl: float | None = 2.0,
         optimizers: Sequence[Optimizer] | None = None,
     ) -> None:
         self.policy_models = list(policy_models or [])
@@ -31,6 +33,7 @@ class MAGRPOPolicyUpdater:
         self.clip_range = float(clip_range)
         self.kl_coef = float(kl_coef)
         self.max_grad_norm = max_grad_norm
+        self.max_safe_kl = None if max_safe_kl is None else float(max_safe_kl)
         self.tokenizers = self._normalize_tokenizers(tokenizers)
         self.optimizers = self._build_optimizers(optimizers)
 
@@ -53,27 +56,44 @@ class MAGRPOPolicyUpdater:
         entropies: List[float] = []
         grad_norms: List[float] = []
 
+        invalid_sample_count = 0
+        skipped_nonfinite_steps = 0
+        skipped_kl_steps = 0
+        skipped_grad_steps = 0
+        effective_optimizer_steps = 0
+
         for _ in range(self.update_epochs):
             for agent_idx, samples in train_samples_by_agent.items():
                 model = self.policy_models[agent_idx]
                 tokenizer = self.tokenizers[agent_idx]
                 optimizer = self.optimizers[agent_idx]
                 model.train()
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
 
                 sample_losses: List[torch.Tensor] = []
                 sample_kls: List[torch.Tensor] = []
                 sample_entropies: List[torch.Tensor] = []
 
                 for sample in samples:
-                    loss, approx_kl, entropy, current_logprob = self._compute_sample_loss(
+                    if not self._sample_has_finite_inputs(sample):
+                        invalid_sample_count += 1
+                        sample.metadata["invalid_reason"] = "nonfinite_input"
+                        continue
+
+                    result = self._compute_sample_loss(
                         model=model,
                         tokenizer=tokenizer,
                         sample=sample,
                     )
+                    if result is None:
+                        invalid_sample_count += 1
+                        continue
+
+                    loss, approx_kl, entropy, current_logprob = result
                     sample_losses.append(loss)
                     sample_kls.append(approx_kl)
                     sample_entropies.append(entropy)
+
                     sample.logprob = current_logprob
                     sample.importance_ratio = self._compute_importance_ratio(
                         current_logprob,
@@ -89,12 +109,34 @@ class MAGRPOPolicyUpdater:
                     sample.approx_kl = float(approx_kl.detach().cpu().item())
 
                 if not sample_losses:
+                    optimizer.zero_grad(set_to_none=True)
                     continue
 
                 loss = torch.stack(sample_losses).mean()
                 mean_kl = torch.stack(sample_kls).mean()
                 mean_entropy = torch.stack(sample_entropies).mean()
+
+                if not (
+                    self._isfinite_tensor(loss)
+                    and self._isfinite_tensor(mean_kl)
+                    and self._isfinite_tensor(mean_entropy)
+                ):
+                    skipped_nonfinite_steps += 1
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
+                mean_kl_value = float(mean_kl.detach().cpu().item())
+                if self.max_safe_kl is not None and abs(mean_kl_value) > self.max_safe_kl:
+                    skipped_kl_steps += 1
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
                 loss.backward()
+
+                if not self._grads_are_finite(model):
+                    skipped_grad_steps += 1
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
 
                 grad_norm = 0.0
                 if self.max_grad_norm is not None:
@@ -102,17 +144,29 @@ class MAGRPOPolicyUpdater:
                         model.parameters(),
                         float(self.max_grad_norm),
                     )
+                    if not self._isfinite_tensor(grad_tensor):
+                        skipped_grad_steps += 1
+                        optimizer.zero_grad(set_to_none=True)
+                        continue
                     grad_norm = float(grad_tensor.detach().cpu().item())
-                optimizer.step()
 
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+
+                effective_optimizer_steps += 1
                 losses.append(float(loss.detach().cpu().item()))
-                kls.append(float(mean_kl.detach().cpu().item()))
+                kls.append(mean_kl_value)
                 entropies.append(float(mean_entropy.detach().cpu().item()))
                 grad_norms.append(grad_norm)
 
         count = len(losses)
         return {
             "optimizer_steps": float(count),
+            "effective_optimizer_steps": float(effective_optimizer_steps),
+            "invalid_sample_count": float(invalid_sample_count),
+            "skipped_nonfinite_steps": float(skipped_nonfinite_steps),
+            "skipped_kl_steps": float(skipped_kl_steps),
+            "skipped_grad_steps": float(skipped_grad_steps),
             "mean_policy_loss": sum(losses) / count if count else 0.0,
             "mean_update_approx_kl": sum(kls) / count if count else 0.0,
             "mean_entropy": sum(entropies) / count if count else 0.0,
@@ -125,24 +179,54 @@ class MAGRPOPolicyUpdater:
         model: PreTrainedModel,
         tokenizer: PreTrainedTokenizerBase,
         sample: EngineTrainSample,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float] | None:
         current_logprob, entropy = self._compute_logprob_and_entropy(
             model=model,
             tokenizer=tokenizer,
             prompt=sample.agent_prompt,
             completion=sample.action_text,
         )
+        if not self._isfinite_tensor(current_logprob) or not self._isfinite_tensor(entropy):
+            sample.metadata["invalid_reason"] = "nonfinite_logprob_or_entropy"
+            return None
+
         old_logprob = 0.0 if sample.old_logprob is None else float(sample.old_logprob)
-        ratio = torch.exp(current_logprob - current_logprob.new_tensor(old_logprob))
-        advantage = current_logprob.new_tensor(float(sample.normalized_advantage))
+        if not math.isfinite(old_logprob):
+            sample.metadata["invalid_reason"] = "nonfinite_old_logprob"
+            return None
+
+        advantage_value = float(sample.normalized_advantage)
+        if not math.isfinite(advantage_value):
+            sample.metadata["invalid_reason"] = "nonfinite_advantage"
+            return None
+
+        log_ratio = current_logprob - current_logprob.new_tensor(old_logprob)
+        log_ratio = torch.clamp(log_ratio, min=-20.0, max=20.0)
+        ratio = torch.exp(log_ratio)
+
+        advantage = current_logprob.new_tensor(advantage_value)
         unclipped = ratio * advantage
-        clipped = torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range) * advantage
+        clipped_ratio = torch.clamp(
+            ratio,
+            1.0 - self.clip_range,
+            1.0 + self.clip_range,
+        )
+        clipped = clipped_ratio * advantage
         loss = -torch.minimum(unclipped, clipped)
 
         approx_kl = current_logprob.new_tensor(0.0)
         if sample.ref_logprob is not None:
-            approx_kl = current_logprob - current_logprob.new_tensor(float(sample.ref_logprob))
+            ref_logprob = float(sample.ref_logprob)
+            if not math.isfinite(ref_logprob):
+                sample.metadata["invalid_reason"] = "nonfinite_ref_logprob"
+                return None
+            approx_kl = current_logprob - current_logprob.new_tensor(ref_logprob)
             loss = loss + self.kl_coef * approx_kl
+
+        if not self._isfinite_tensor(loss) or not self._isfinite_tensor(approx_kl):
+            sample.metadata["invalid_reason"] = "nonfinite_loss_or_kl"
+            return None
+
         return loss, approx_kl, entropy, float(current_logprob.detach().cpu().item())
 
     def _compute_logprob_and_entropy(
@@ -180,7 +264,11 @@ class MAGRPOPolicyUpdater:
 
         completion_logprob = token_log_probs.masked_select(completion_mask).sum()
         entropy_values = token_entropies.masked_select(completion_mask)
-        entropy = completion_logprob.new_tensor(0.0) if entropy_values.numel() == 0 else entropy_values.mean()
+        entropy = (
+            completion_logprob.new_tensor(0.0)
+            if entropy_values.numel() == 0
+            else entropy_values.mean()
+        )
         return completion_logprob, entropy
 
     def _normalize_tokenizers(
@@ -210,9 +298,35 @@ class MAGRPOPolicyUpdater:
     def _compute_importance_ratio(self, logprob: float | None, old_logprob: float | None) -> float:
         if logprob is None or old_logprob is None:
             return 1.0
-        return float(torch.exp(torch.tensor(logprob - old_logprob)).item())
+        if not math.isfinite(logprob) or not math.isfinite(old_logprob):
+            return 1.0
+        delta = max(min(logprob - old_logprob, 20.0), -20.0)
+        return float(torch.exp(torch.tensor(delta)).item())
 
     def _clip_ratio(self, ratio: float) -> float:
         lower = 1.0 - self.clip_range
         upper = 1.0 + self.clip_range
         return float(min(max(ratio, lower), upper))
+
+    @staticmethod
+    def _isfinite_tensor(value: torch.Tensor) -> bool:
+        return bool(torch.isfinite(value).all().item())
+
+    @staticmethod
+    def _sample_has_finite_inputs(sample: EngineTrainSample) -> bool:
+        if not math.isfinite(float(sample.normalized_advantage)):
+            return False
+        if sample.old_logprob is not None and not math.isfinite(float(sample.old_logprob)):
+            return False
+        if sample.ref_logprob is not None and not math.isfinite(float(sample.ref_logprob)):
+            return False
+        return True
+
+    @staticmethod
+    def _grads_are_finite(model: PreTrainedModel) -> bool:
+        for parameter in model.parameters():
+            if parameter.grad is None:
+                continue
+            if not torch.isfinite(parameter.grad).all():
+                return False
+        return True

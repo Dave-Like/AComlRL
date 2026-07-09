@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Sequence
 
 from torch.optim import Optimizer
@@ -27,6 +28,7 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
         clip_range: float = 0.2,
         kl_coef: float = 0.0,
         max_grad_norm: float | None = 1.0,
+        max_safe_kl: float | None = 2.0,
         optimizers: Sequence[Optimizer] | None = None,
         advantage_mode: str = "zscore",
         advantage_epsilon: float = 1e-8,
@@ -36,6 +38,12 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
         contribution_mix_alpha: float = 0.5,
         counterfactual_anchor_coef: float = 0.25,
         no_helper_token: str = "Nohelperutilitycodeavailable",
+        outer_advantage_clip: float | None = 5.0,
+        inner_advantage_clip: float | None = 3.0,
+        combined_advantage_clip: float | None = 5.0,
+        inner_scale_mode: str = "match_outer_mean_abs",
+        min_inner_scale: float = 0.5,
+        max_inner_scale: float = 3.0,
     ) -> None:
         super().__init__(
             policy_models=policy_models,
@@ -45,6 +53,7 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             clip_range=clip_range,
             kl_coef=kl_coef,
             max_grad_norm=max_grad_norm,
+            max_safe_kl=max_safe_kl,
             optimizers=optimizers,
         )
         self.advantage_mode = str(advantage_mode)
@@ -52,6 +61,18 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
         self.contribution_mode = str(contribution_mode).strip().lower()
         self.contribution_lambda = float(contribution_lambda)
         self.contribution_mix_alpha = float(contribution_mix_alpha)
+        self.outer_advantage_clip = (
+            None if outer_advantage_clip is None else float(outer_advantage_clip)
+        )
+        self.inner_advantage_clip = (
+            None if inner_advantage_clip is None else float(inner_advantage_clip)
+        )
+        self.combined_advantage_clip = (
+            None if combined_advantage_clip is None else float(combined_advantage_clip)
+        )
+        self.inner_scale_mode = str(inner_scale_mode or "match_outer_mean_abs").strip().lower()
+        self.min_inner_scale = float(min_inner_scale)
+        self.max_inner_scale = float(max_inner_scale)
         self.contribution_analyzer = ContributionAnalyzer(
             task_combination=task_combination,
             anchor_coef=counterfactual_anchor_coef,
@@ -160,18 +181,57 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
         samples: Sequence[EngineTrainSample],
         branch_scores_by_node: Dict[str, Dict[int, float]],
     ) -> List[EngineTrainSample]:
+        raw_outer_values: List[float] = []
+        raw_inner_values: List[float] = []
+
+        for sample in samples:
+            raw_outer_values.append(self._compute_outer_advantage(sample))
+            raw_inner_values.append(
+                float(
+                    branch_scores_by_node.get(sample.node_id, {}).get(
+                        sample.branch_idx,
+                        0.0,
+                    )
+                )
+            )
+
+        inner_scale = self._compute_inner_scale(
+            raw_outer_values=raw_outer_values,
+            raw_inner_values=raw_inner_values,
+        )
+
         adjusted_samples: List[EngineTrainSample] = []
         for sample in samples:
-            outer_advantage = self._compute_outer_advantage(sample)
-            inner_advantage = float(
+            raw_outer_advantage = self._compute_outer_advantage(sample)
+            raw_inner_advantage = float(
                 branch_scores_by_node.get(sample.node_id, {}).get(
                     sample.branch_idx,
                     0.0,
                 )
             )
-            combined_advantage = (
-                outer_advantage + self.contribution_lambda * inner_advantage
+
+            outer_advantage = self._clip_finite_scalar(
+                raw_outer_advantage,
+                self.outer_advantage_clip,
             )
+            inner_advantage = self._clip_finite_scalar(
+                raw_inner_advantage,
+                self.inner_advantage_clip,
+            )
+            scaled_inner_advantage = self._clip_finite_scalar(
+                inner_advantage * inner_scale,
+                self.inner_advantage_clip,
+            )
+
+            raw_combined_advantage = (
+                outer_advantage
+                + self.contribution_lambda * scaled_inner_advantage
+            )
+            combined_advantage = self._clip_finite_scalar(
+                raw_combined_advantage,
+                self.combined_advantage_clip,
+            )
+
             sample.normalized_advantage = float(combined_advantage)
             sample.policy_objective = (
                 sample.importance_ratio * sample.normalized_advantage
@@ -179,8 +239,14 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             sample.clipped_policy_objective = (
                 sample.clipped_ratio * sample.normalized_advantage
             )
+
+            sample.metadata["raw_outer_advantage"] = float(raw_outer_advantage)
+            sample.metadata["raw_inner_advantage"] = float(raw_inner_advantage)
             sample.metadata["outer_advantage"] = float(outer_advantage)
             sample.metadata["inner_advantage"] = float(inner_advantage)
+            sample.metadata["scaled_inner_advantage"] = float(scaled_inner_advantage)
+            sample.metadata["inner_scale"] = float(inner_scale)
+            sample.metadata["raw_combined_advantage"] = float(raw_combined_advantage)
             sample.metadata["combined_advantage"] = float(combined_advantage)
             sample.metadata["contribution_mode"] = self.contribution_mode
             adjusted_samples.append(sample)
@@ -199,3 +265,50 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             "Unsupported GIG-GRPO advantage_mode: "
             f"{self.advantage_mode!r}. Expected one of ['zscore', 'centered', 'return']."
         )
+
+    def _compute_inner_scale(
+        self,
+        *,
+        raw_outer_values: Sequence[float],
+        raw_inner_values: Sequence[float],
+    ) -> float:
+        if self.inner_scale_mode in {"none", "identity"}:
+            return 1.0
+
+        mean_abs_outer = self._mean_abs_finite(raw_outer_values)
+        mean_abs_inner = self._mean_abs_finite(raw_inner_values)
+
+        if mean_abs_inner <= self.advantage_epsilon:
+            return 1.0
+
+        if self.inner_scale_mode == "match_outer_mean_abs":
+            ratio = mean_abs_outer / max(mean_abs_inner, self.advantage_epsilon)
+            return self._clip_scale(ratio)
+
+        return 1.0
+
+    def _clip_scale(self, value: float) -> float:
+        if not math.isfinite(float(value)):
+            return 1.0
+        lower = min(self.min_inner_scale, self.max_inner_scale)
+        upper = max(self.min_inner_scale, self.max_inner_scale)
+        return float(min(max(float(value), lower), upper))
+
+    @staticmethod
+    def _mean_abs_finite(values: Sequence[float]) -> float:
+        finite_values = [
+            abs(float(value))
+            for value in values
+            if math.isfinite(float(value))
+        ]
+        return stable_mean(finite_values, 0.0)
+
+    @staticmethod
+    def _clip_finite_scalar(value: float, clip_value: float | None) -> float:
+        if not math.isfinite(float(value)):
+            return 0.0
+        scalar = float(value)
+        if clip_value is None:
+            return scalar
+        bound = abs(float(clip_value))
+        return float(min(max(scalar, -bound), bound))

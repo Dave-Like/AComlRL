@@ -39,6 +39,7 @@ class GIGGRPOEngine(BaseRLEngine):
             clip_range=self.clip_range,
             kl_coef=self.kl_coef,
             max_grad_norm=self.max_grad_norm,
+            max_safe_kl=self.config.max_safe_kl,
             advantage_mode=self.advantage_mode,
             advantage_epsilon=self.advantage_epsilon,
             contribution_mode=self.config.contribution_mode,
@@ -47,6 +48,13 @@ class GIGGRPOEngine(BaseRLEngine):
             contribution_mix_alpha=self.config.contribution_mix_alpha,
             counterfactual_anchor_coef=self.config.counterfactual_anchor_coef,
             no_helper_token=self.config.no_helper_token,
+            outer_advantage_clip=self.config.outer_advantage_clip,
+            inner_advantage_clip=self.config.inner_advantage_clip,
+            combined_advantage_clip=self.config.combined_advantage_clip,
+            inner_scale_mode=self.config.inner_scale_mode,
+            min_inner_scale=self.config.min_inner_scale,
+            max_inner_scale=self.config.max_inner_scale,
+        
         )
 
     def attach_policy_components(
@@ -65,6 +73,7 @@ class GIGGRPOEngine(BaseRLEngine):
             clip_range=self.clip_range,
             kl_coef=self.kl_coef,
             max_grad_norm=self.max_grad_norm,
+            max_safe_kl=self.config.max_safe_kl,
             advantage_mode=self.advantage_mode,
             advantage_epsilon=self.advantage_epsilon,
             contribution_mode=self.config.contribution_mode,
@@ -73,6 +82,12 @@ class GIGGRPOEngine(BaseRLEngine):
             contribution_mix_alpha=self.config.contribution_mix_alpha,
             counterfactual_anchor_coef=self.config.counterfactual_anchor_coef,
             no_helper_token=self.config.no_helper_token,
+            outer_advantage_clip=self.config.outer_advantage_clip,
+            inner_advantage_clip=self.config.inner_advantage_clip,
+            combined_advantage_clip=self.config.combined_advantage_clip,
+            inner_scale_mode=self.config.inner_scale_mode,
+            min_inner_scale=self.config.min_inner_scale,
+            max_inner_scale=self.config.max_inner_scale,
         )
 
     def update(
@@ -138,6 +153,20 @@ class GIGGRPOEngine(BaseRLEngine):
             "mean_group_std": stable_mean([sample.group_std_return for sample in all_train_samples]),
             "mean_outer_advantage": stable_mean([float(sample.metadata.get("outer_advantage", 0.0)) for sample in all_train_samples]),
             "mean_inner_advantage": stable_mean([float(sample.metadata.get("inner_advantage", 0.0)) for sample in all_train_samples]),
+            "mean_scaled_inner_advantage": stable_mean([float(sample.metadata.get("scaled_inner_advantage", 0.0)) for sample in all_train_samples]),
+            "mean_combined_advantage": stable_mean([float(sample.metadata.get("combined_advantage", 0.0)) for sample in all_train_samples]),
+            "mean_abs_outer_advantage": stable_mean([abs(float(sample.metadata.get("outer_advantage", 0.0))) for sample in all_train_samples]),
+            "mean_abs_inner_advantage": stable_mean([abs(float(sample.metadata.get("inner_advantage", 0.0))) for sample in all_train_samples]),
+            "mean_abs_scaled_inner_advantage": stable_mean([abs(float(sample.metadata.get("scaled_inner_advantage", 0.0))) for sample in all_train_samples]),
+            "mean_abs_combined_advantage": stable_mean([abs(float(sample.metadata.get("combined_advantage", 0.0))) for sample in all_train_samples]),
+            "mean_inner_scale": stable_mean([float(sample.metadata.get("inner_scale", 1.0)) for sample in all_train_samples], 1.0),
+            "inner_outer_scale_ratio": (
+                stable_mean([abs(float(sample.metadata.get("scaled_inner_advantage", 0.0))) for sample in all_train_samples])
+                / max(
+                    stable_mean([abs(float(sample.metadata.get("outer_advantage", 0.0))) for sample in all_train_samples]),
+                    self.advantage_epsilon,
+                )
+            ),
             "mean_task_score": stable_mean([float(sample.metadata.get("task_score", 0.0)) for sample in all_train_samples]),
             "mean_counterfactual_score": stable_mean([float(sample.metadata.get("counterfactual_score", 0.0)) for sample in all_train_samples]),
             "mean_cf_ablation": stable_mean([float(sample.metadata.get("cf_ablation", 0.0)) for sample in all_train_samples]),

@@ -72,6 +72,7 @@ def build_magrpo_stack(
         rollout=rollout,
         config=config,
         default_generation_kwargs=generation_kwargs,
+        execution_mode="batched",
     )
     engine = MAGRPOEngine(config=config)
     engine.attach_policy_components(
@@ -134,6 +135,7 @@ def build_gig_grpo_stack(
         rollout=rollout,
         config=config,
         default_generation_kwargs=generation_kwargs,
+        execution_mode="batched",
     )
     engine = GIGGRPOEngine(config=config)
     engine.attach_policy_components(

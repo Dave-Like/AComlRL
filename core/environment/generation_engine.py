@@ -40,7 +40,8 @@ class LLMGenerationEngine:
 
     当前版本新增 group rollout 支持：
     - 单分支模式下仍可生成多个候选 completion；
-    - group 模式下对每个 branch 的 prompt 一一对应生成一个 completion。
+    - group 模式下对每个 branch 的 prompt 一一对应生成一个 completion；
+    - 支持将多个 prompt 打包为单次 batched generate 调用。
     """
 
     def __init__(
@@ -94,12 +95,31 @@ class LLMGenerationEngine:
         generation_kwargs: Optional[Dict[str, Any]] = None,
     ) -> AgentGenerationOutput:
         """为单个 agent 生成候选动作。"""
+        outputs = self.generate_batch_for_agent(
+            agent_idx=agent_idx,
+            prompts=[prompt],
+            num_generations_per_prompt=num_generations,
+            generation_kwargs=generation_kwargs,
+        )
+        return outputs[0]
+
+    def generate_batch_for_agent(
+        self,
+        *,
+        agent_idx: int,
+        prompts: Sequence[str],
+        num_generations_per_prompt: int,
+        generation_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> List[AgentGenerationOutput]:
+        """为单个 agent 对多个 prompt 批量生成候选动作。"""
         if agent_idx < 0 or agent_idx >= self.num_agents:
             raise IndexError("agent_idx out of range.")
-        if num_generations < 1:
-            raise ValueError("num_generations must be >= 1.")
-        if not isinstance(prompt, str):
-            raise ValueError("prompt must be a string.")
+        if num_generations_per_prompt < 1:
+            raise ValueError("num_generations_per_prompt must be >= 1.")
+        if not prompts:
+            return []
+        if any(not isinstance(prompt, str) for prompt in prompts):
+            raise ValueError("All prompts must be strings.")
 
         model = self.agents[agent_idx]
         tokenizer = self.tokenizers[agent_idx]
@@ -109,69 +129,80 @@ class LLMGenerationEngine:
             tokenizer.pad_token = tokenizer.eos_token
 
         encoded = tokenizer(
-            prompt,
+            list(prompts),
             return_tensors="pt",
             truncation=True,
+            padding=True,
         )
         prompt_input_ids = encoded["input_ids"].to(device)
         prompt_attention_mask = encoded["attention_mask"].to(device)
-        prompt_len = prompt_input_ids.size(1)
+        prompt_lengths = prompt_attention_mask.sum(dim=1).tolist()
 
-        kwargs: Dict[str, Any] = {
-            "input_ids": prompt_input_ids,
-            "attention_mask": prompt_attention_mask,
-            "max_new_tokens": self.max_new_tokens,
-            "do_sample": self.do_sample,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "num_return_sequences": num_generations,
-            "num_beams": 1,
-        }
-        if self.top_k is not None:
-            kwargs["top_k"] = self.top_k
-        if generation_kwargs:
-            kwargs.update(generation_kwargs)
+        kwargs = self._build_generation_kwargs(
+            prompt_input_ids=prompt_input_ids,
+            prompt_attention_mask=prompt_attention_mask,
+            num_generations=num_generations_per_prompt,
+            generation_kwargs=generation_kwargs,
+        )
 
         was_training = model.training
         model.eval()
         with torch.no_grad():
             generated = model.generate(**kwargs)
-            completion_logprobs = self._compute_completion_logprobs(
+            completion_logprobs = self._compute_completion_logprobs_for_batch(
                 model=model,
                 sequences=generated,
-                prompt_len=prompt_len,
+                prompt_lengths=prompt_lengths,
                 pad_token_id=(
                     tokenizer.pad_token_id
                     if tokenizer.pad_token_id is not None
                     else tokenizer.eos_token_id
                 ),
+                num_generations_per_prompt=num_generations_per_prompt,
             )
         model.train(was_training)
 
-        completions: List[str] = []
-        completion_token_ids: List[torch.Tensor] = []
-        completion_attention_masks: List[torch.Tensor] = []
+        prompt_input_ids_cpu = prompt_input_ids.detach().cpu()
+        prompt_attention_mask_cpu = prompt_attention_mask.detach().cpu()
+        generated_cpu = generated.detach().cpu()
 
-        for seq in generated:
-            completion_ids = seq[prompt_len:]
-            completion_token_ids.append(completion_ids.detach().cpu())
-            completion_attention_masks.append(
-                torch.ones(len(completion_ids), dtype=torch.long)
-            )
-            completions.append(
-                tokenizer.decode(completion_ids, skip_special_tokens=True)
-            )
+        outputs: List[AgentGenerationOutput] = []
+        for prompt_idx, prompt in enumerate(prompts):
+            prompt_len = int(prompt_lengths[prompt_idx])
+            seq_start = prompt_idx * num_generations_per_prompt
+            seq_end = seq_start + num_generations_per_prompt
+            prompt_sequences = generated_cpu[seq_start:seq_end]
+            prompt_logprobs = completion_logprobs[prompt_idx]
 
-        return AgentGenerationOutput(
-            agent_idx=agent_idx,
-            prompt=prompt,
-            completions=completions,
-            prompt_input_ids=prompt_input_ids.detach().cpu(),
-            prompt_attention_mask=prompt_attention_mask.detach().cpu(),
-            completion_token_ids=completion_token_ids,
-            completion_attention_masks=completion_attention_masks,
-            completion_logprobs=completion_logprobs,
-        )
+            completions: List[str] = []
+            completion_token_ids: List[torch.Tensor] = []
+            completion_attention_masks: List[torch.Tensor] = []
+
+            for sequence in prompt_sequences:
+                completion_ids = sequence[prompt_len:]
+                completion_token_ids.append(completion_ids)
+                completion_attention_masks.append(
+                    torch.ones(len(completion_ids), dtype=torch.long)
+                )
+                completions.append(
+                    tokenizer.decode(completion_ids, skip_special_tokens=True)
+                )
+
+            outputs.append(
+                AgentGenerationOutput(
+                    agent_idx=agent_idx,
+                    prompt=prompt,
+                    completions=completions,
+                    prompt_input_ids=prompt_input_ids_cpu[prompt_idx : prompt_idx + 1],
+                    prompt_attention_mask=prompt_attention_mask_cpu[
+                        prompt_idx : prompt_idx + 1
+                    ],
+                    completion_token_ids=completion_token_ids,
+                    completion_attention_masks=completion_attention_masks,
+                    completion_logprobs=list(prompt_logprobs),
+                )
+            )
+        return outputs
 
     def generate_for_all_agents(
         self,
@@ -210,20 +241,38 @@ class LLMGenerationEngine:
         返回结构为 `[branch_idx][agent_idx] -> AgentGenerationOutput`，
         且每个输出恰有 1 个 completion，与 branch 一一对应。
         """
-        outputs: List[List[AgentGenerationOutput]] = []
+        branch_count = len(prompts_per_branch_per_agent)
+        if branch_count == 0:
+            return []
+
         for prompts_per_agent in prompts_per_branch_per_agent:
             if len(prompts_per_agent) != self.num_agents:
                 raise ValueError(
                     "Each branch must provide exactly one prompt per agent."
                 )
-            outputs.append(
-                self.generate_for_all_agents(
-                    prompts_per_agent=prompts_per_agent,
-                    num_generations=1,
+
+        outputs_per_agent: List[List[AgentGenerationOutput]] = []
+        for agent_idx in range(self.num_agents):
+            prompts_for_agent = [
+                str(branch_prompts[agent_idx])
+                for branch_prompts in prompts_per_branch_per_agent
+            ]
+            outputs_per_agent.append(
+                self.generate_batch_for_agent(
+                    agent_idx=agent_idx,
+                    prompts=prompts_for_agent,
+                    num_generations_per_prompt=1,
                     generation_kwargs=generation_kwargs,
                 )
             )
-        return outputs
+
+        return [
+            [
+                outputs_per_agent[agent_idx][branch_idx]
+                for agent_idx in range(self.num_agents)
+            ]
+            for branch_idx in range(branch_count)
+        ]
 
     def build_joint_actions(
         self,
@@ -290,8 +339,37 @@ class LLMGenerationEngine:
         prompt_len: int,
         pad_token_id: int | None,
     ) -> List[float]:
+        grouped_logprobs = LLMGenerationEngine._compute_completion_logprobs_for_batch(
+            model=model,
+            sequences=sequences,
+            prompt_lengths=[prompt_len],
+            pad_token_id=pad_token_id,
+            num_generations_per_prompt=sequences.size(0),
+        )
+        return grouped_logprobs[0] if grouped_logprobs else []
+
+    @staticmethod
+    def _compute_completion_logprobs_for_batch(
+        *,
+        model: PreTrainedModel,
+        sequences: torch.Tensor,
+        prompt_lengths: Sequence[int],
+        pad_token_id: int | None,
+        num_generations_per_prompt: int,
+    ) -> List[List[float]]:
         if sequences.ndim != 2:
             raise ValueError("sequences must be a rank-2 tensor.")
+        if num_generations_per_prompt < 1:
+            raise ValueError("num_generations_per_prompt must be >= 1.")
+        if not prompt_lengths:
+            return []
+
+        batch_size = len(prompt_lengths)
+        expected_rows = batch_size * num_generations_per_prompt
+        if sequences.size(0) != expected_rows:
+            raise ValueError(
+                "sequences row count must equal batch_size * num_generations_per_prompt."
+            )
 
         attention_mask = torch.ones_like(sequences, dtype=torch.long)
         if pad_token_id is not None:
@@ -305,15 +383,55 @@ class LLMGenerationEngine:
             index=target_ids.unsqueeze(-1),
         ).squeeze(-1)
 
-        completion_start = max(prompt_len - 1, 0)
         completion_mask = torch.zeros_like(token_log_probs, dtype=torch.bool)
-        if completion_start < token_log_probs.size(1):
-            completion_mask[:, completion_start:] = True
+        expanded_prompt_lengths = [
+            int(prompt_len)
+            for prompt_len in prompt_lengths
+            for _ in range(num_generations_per_prompt)
+        ]
+        for row_idx, prompt_len in enumerate(expanded_prompt_lengths):
+            completion_start = max(prompt_len - 1, 0)
+            if completion_start < token_log_probs.size(1):
+                completion_mask[row_idx, completion_start:] = True
         if pad_token_id is not None:
             completion_mask &= target_ids != pad_token_id
 
         summed_log_probs = (token_log_probs * completion_mask).sum(dim=1)
-        return [float(value) for value in summed_log_probs.detach().cpu().tolist()]
+        flat_logprobs = [
+            float(value) for value in summed_log_probs.detach().cpu().tolist()
+        ]
+        return [
+            flat_logprobs[start_idx : start_idx + num_generations_per_prompt]
+            for start_idx in range(
+                0,
+                len(flat_logprobs),
+                num_generations_per_prompt,
+            )
+        ]
+
+    def _build_generation_kwargs(
+        self,
+        *,
+        prompt_input_ids: torch.Tensor,
+        prompt_attention_mask: torch.Tensor,
+        num_generations: int,
+        generation_kwargs: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "input_ids": prompt_input_ids,
+            "attention_mask": prompt_attention_mask,
+            "max_new_tokens": self.max_new_tokens,
+            "do_sample": self.do_sample,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "num_return_sequences": num_generations,
+            "num_beams": 1,
+        }
+        if self.top_k is not None:
+            kwargs["top_k"] = self.top_k
+        if generation_kwargs:
+            kwargs.update(generation_kwargs)
+        return kwargs
 
     def _build_joint_action_indices(
         self,

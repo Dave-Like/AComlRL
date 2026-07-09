@@ -48,7 +48,9 @@ class CHEExecutor:
             if num_generations is None
             else int(num_generations)
         )
-        resolved_joint_mode = resolved_config.joint_mode if joint_mode is None else joint_mode
+        resolved_joint_mode = (
+            resolved_config.joint_mode if joint_mode is None else joint_mode
+        )
         resolved_termination_threshold = (
             resolved_config.early_termination_threshold
             if early_termination_threshold is None
@@ -79,7 +81,10 @@ class CHEExecutor:
         num_generations: Optional[int] = None,
         generation_kwargs: Optional[Dict[str, Any]] = None,
     ) -> CHERuntimeTurnResult:
-        branch_count = self.num_generations if num_generations is None else num_generations
+        branch_count = (
+            self.num_generations if num_generations is None else num_generations
+        )
+
         prompts_per_branch_per_agent = self._build_branch_prompts(
             state=state,
             branch_count=branch_count,
@@ -90,39 +95,31 @@ class CHEExecutor:
             prompts_per_branch_per_agent,
         )
 
-        branch_outputs = self.generation_engine.generate_group_for_all_agents(
+        branch_outputs = self._generate_branch_outputs(
             prompts_per_branch_per_agent=prompts_per_branch_per_agent,
             generation_kwargs=generation_kwargs,
         )
-        actions_per_branch_per_agent = [
-            [agent_output.completions[0] for agent_output in branch_outputs_per_agent]
-            for branch_outputs_per_agent in branch_outputs
-        ]
+        actions_per_branch_per_agent = self._extract_actions_from_branch_outputs(
+            branch_outputs
+        )
 
-        joint_rewards = [
-            self.env.compute_reward(state=state, agent_completions=branch_actions)
-            for branch_actions in actions_per_branch_per_agent
-        ]
+        reward_mode, joint_rewards = self._compute_joint_rewards(
+            state=state,
+            actions_per_branch_per_agent=actions_per_branch_per_agent,
+        )
         should_terminate = self.env.should_terminate(
             turn_idx=turn_idx,
             rewards=joint_rewards,
             early_termination_threshold=self.early_termination_threshold,
         )
 
-        next_prompts_per_branch_per_agent: List[List[str]] = []
-        if not should_terminate:
-            next_prompts_per_branch_per_agent = [
-                self.env.transition(
-                    state=state,
-                    agent_completions=branch_actions,
-                    prompt_history_per_agent=prompt_history_with_current[branch_idx],
-                    response_history_per_agent=self._append_single_history(
-                        response_history_per_branch_per_agent[branch_idx],
-                        branch_actions,
-                    ),
-                )
-                for branch_idx, branch_actions in enumerate(actions_per_branch_per_agent)
-            ]
+        transition_mode, next_prompts_per_branch_per_agent = self._build_next_prompts(
+            state=state,
+            should_terminate=should_terminate,
+            actions_per_branch_per_agent=actions_per_branch_per_agent,
+            prompt_history_per_branch_per_agent=prompt_history_with_current,
+            response_history_per_branch_per_agent=response_history_per_branch_per_agent,
+        )
 
         return CHERuntimeTurnResult(
             turn_idx=turn_idx,
@@ -141,8 +138,116 @@ class CHEExecutor:
             metadata={
                 "joint_mode": self.joint_mode,
                 "num_branches": len(actions_per_branch_per_agent),
+                "execution_path": "batched_generation",
+                "reward_mode": reward_mode,
+                "transition_mode": transition_mode,
             },
         )
+
+    def _generate_branch_outputs(
+        self,
+        *,
+        prompts_per_branch_per_agent: BranchPrompts,
+        generation_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> List[List[AgentGenerationOutput]]:
+        return self.generation_engine.generate_group_for_all_agents(
+            prompts_per_branch_per_agent=prompts_per_branch_per_agent,
+            generation_kwargs=generation_kwargs,
+        )
+
+    @staticmethod
+    def _extract_actions_from_branch_outputs(
+        branch_outputs: Sequence[Sequence[AgentGenerationOutput]],
+    ) -> List[List[str]]:
+        return [
+            [agent_output.completions[0] for agent_output in branch_outputs_per_agent]
+            for branch_outputs_per_agent in branch_outputs
+        ]
+
+    def _compute_joint_rewards(
+        self,
+        *,
+        state: CoopHumanEnvState,
+        actions_per_branch_per_agent: Sequence[Sequence[str]],
+    ) -> tuple[str, List[float]]:
+        reward_batch_fn = getattr(self.env, "compute_reward_batch", None)
+        if callable(reward_batch_fn):
+            rewards = reward_batch_fn(
+                state=state,
+                actions_per_branch_per_agent=[
+                    list(branch_actions)
+                    for branch_actions in actions_per_branch_per_agent
+                ],
+            )
+            return "batch", [float(value) for value in rewards]
+
+        rewards = [
+            float(
+                self.env.compute_reward(
+                    state=state,
+                    agent_completions=list(branch_actions),
+                )
+            )
+            for branch_actions in actions_per_branch_per_agent
+        ]
+        return "serial_fallback", rewards
+
+    def _build_next_prompts(
+        self,
+        *,
+        state: CoopHumanEnvState,
+        should_terminate: bool,
+        actions_per_branch_per_agent: Sequence[Sequence[str]],
+        prompt_history_per_branch_per_agent: BranchHistories,
+        response_history_per_branch_per_agent: BranchHistories,
+    ) -> tuple[str, List[List[str]]]:
+        if should_terminate:
+            return "skipped_terminal", []
+
+        transition_batch_fn = getattr(self.env, "transition_batch", None)
+        if callable(transition_batch_fn):
+            next_prompts = transition_batch_fn(
+                state=state,
+                actions_per_branch_per_agent=[
+                    list(branch_actions)
+                    for branch_actions in actions_per_branch_per_agent
+                ],
+                prompt_history_per_branch_per_agent=[
+                    [
+                        list(agent_history)
+                        for agent_history in branch_prompt_history
+                    ]
+                    for branch_prompt_history in prompt_history_per_branch_per_agent
+                ],
+                response_history_per_branch_per_agent=[
+                    self._append_single_history(branch_response_history, branch_actions)
+                    for branch_response_history, branch_actions in zip(
+                        response_history_per_branch_per_agent,
+                        actions_per_branch_per_agent,
+                    )
+                ],
+            )
+            return (
+                "batch",
+                [list(branch_prompts) for branch_prompts in next_prompts],
+            )
+
+        next_prompts_per_branch_per_agent: List[List[str]] = []
+        for branch_idx, branch_actions in enumerate(actions_per_branch_per_agent):
+            next_prompts_per_branch_per_agent.append(
+                self.env.transition(
+                    state=state,
+                    agent_completions=list(branch_actions),
+                    prompt_history_per_agent=prompt_history_per_branch_per_agent[
+                        branch_idx
+                    ],
+                    response_history_per_agent=self._append_single_history(
+                        response_history_per_branch_per_agent[branch_idx],
+                        branch_actions,
+                    ),
+                )
+            )
+        return "serial_fallback", next_prompts_per_branch_per_agent
 
     def _build_branch_prompts(
         self,

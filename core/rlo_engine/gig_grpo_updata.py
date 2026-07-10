@@ -161,20 +161,6 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             + (1.0 - self.contribution_mix_alpha) * counterfactual_score
         )
 
-    def _normalize_branch_scores(
-        self,
-        raw_scores: Dict[int, float],
-    ) -> Dict[int, float]:
-        values = list(raw_scores.values())
-        mean_value = stable_mean(values)
-        std_value = stable_std(values)
-        if std_value <= self.advantage_epsilon:
-            return {branch_idx: 0.0 for branch_idx in raw_scores}
-        return {
-            branch_idx: float((score - mean_value) / std_value)
-            for branch_idx, score in raw_scores.items()
-        }
-
     def _build_adjusted_samples_for_agent(
         self,
         *,
@@ -247,14 +233,14 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             adjusted_samples.append(sample)
             combined_advantages.append(float(combined_advantage))
 
-            mean_combined = stable_mean(combined_advantages, 0.0)
-            std_combined = float(stable_std(combined_advantages))
+        mean_combined = stable_mean(combined_advantages, 0.0)
+        std_combined = float(stable_std(combined_advantages))
 
-            for sample, combined_advantage in zip(adjusted_samples, combined_advantages):
-                if not math.isfinite(std_combined) or std_combined <= self.advantage_epsilon:
-                    final_advantage = 0.0
-                else:
-                    final_advantage = (combined_advantage - mean_combined) / std_combined
+        for sample, combined_advantage in zip(adjusted_samples, combined_advantages):
+            if not math.isfinite(std_combined) or std_combined <= self.advantage_epsilon:
+                final_advantage = 0.0
+            else:
+                final_advantage = (combined_advantage - mean_combined) / std_combined
 
             final_advantage = self._clip_finite_scalar(
                 final_advantage,

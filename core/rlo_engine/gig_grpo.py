@@ -213,9 +213,8 @@ class GIGGRPOEngine(BaseRLEngine):
                     "outer_advantage": float(sample.metadata.get("outer_advantage", 0.0)),
                     "inner_advantage": float(sample.metadata.get("inner_advantage", 0.0)),
                     "scaled_inner_advantage": float(sample.metadata.get("scaled_inner_advantage", 0.0)),
-                    "combined_advantage": float(
-                        sample.metadata.get("combined_advantage", sample.normalized_advantage)
-                    ),
+                    "combined_advantage": float(sample.metadata.get("combined_advantage", 0.0)),
+                    "final_advantage": float(sample.metadata.get("final_advantage", sample.normalized_advantage)),
                 }
 
         node_ids = sorted(grouped.keys())
@@ -224,6 +223,7 @@ class GIGGRPOEngine(BaseRLEngine):
         inner_matrix: List[List[List[float]]] = []
         scaled_inner_matrix: List[List[List[float]]] = []
         combined_matrix: List[List[List[float]]] = []
+        final_matrix: List[List[List[float]]] = []
 
         for node_id in node_ids:
             per_branch = grouped[node_id]
@@ -233,6 +233,7 @@ class GIGGRPOEngine(BaseRLEngine):
             node_inner: List[List[float]] = []
             node_scaled_inner: List[List[float]] = []
             node_combined: List[List[float]] = []
+            node_final: List[List[float]] = []
 
             for branch_idx in branch_ids:
                 per_agent = per_branch[branch_idx]
@@ -254,11 +255,16 @@ class GIGGRPOEngine(BaseRLEngine):
                     float(per_agent[agent_idx]["combined_advantage"])
                     for agent_idx in agent_ids
                 ])
+                node_final.append([
+                    float(per_agent[agent_idx]["final_advantage"])
+                    for agent_idx in agent_ids
+                ])
 
             outer_matrix.append(node_outer)
             inner_matrix.append(node_inner)
             scaled_inner_matrix.append(node_scaled_inner)
             combined_matrix.append(node_combined)
+            final_matrix.append(node_final)
 
         return {
             "node_ids": node_ids,
@@ -266,4 +272,5 @@ class GIGGRPOEngine(BaseRLEngine):
             "inner_advantage_matrix": inner_matrix,
             "scaled_inner_advantage_matrix": scaled_inner_matrix,
             "combined_advantage_matrix": combined_matrix,
+            "final_advantage_matrix": final_matrix,
         }

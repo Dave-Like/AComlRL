@@ -88,20 +88,17 @@ def build_tokenizer(
     *,
     use_fast: bool = False,
     trust_remote_code: bool = True,
-    cache_dir: str | Path | None = None,
-    local_files_only: bool = False,
 ) -> PreTrainedTokenizerBase:
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
         use_fast=use_fast,
         trust_remote_code=trust_remote_code,
-        cache_dir=None if cache_dir is None else str(cache_dir),
-        local_files_only=local_files_only,
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
     return tokenizer
+
 
 def build_base_causal_lm(
     model_name: str,
@@ -230,8 +227,7 @@ def build_models_for_spec(
     agents: List[PreTrainedModel] = []
     tokenizers: List[PreTrainedTokenizerBase] = []
 
-    for idx, adapter_dir in enumerate(adapter_dirs):
-        print(f"[model_build] building agent {idx}", flush=True)
+    for adapter_dir in adapter_dirs:
         model, tokenizer = build_lora_model(
             model_name,
             reset_mode=reset_mode,
@@ -243,7 +239,6 @@ def build_models_for_spec(
             trust_remote_code=trust_remote_code,
             prepare_kbit_training=prepare_kbit_training,
         )
-        print(f"[model_build] agent {idx} built", flush=True)
         agents.append(model)
         tokenizers.append(tokenizer)
 

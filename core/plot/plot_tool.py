@@ -76,30 +76,36 @@ def plot_training_curves(
     save_path: str | Path | None = None,
     show: bool = False,
     figsize: tuple[int, int] = (10, 12),
+    x_values: Sequence[float | int] | None = None,
+    x_label: str = "Step",
 ) -> RLPlotResult:
     """绘制单实验常用强化学习曲线。"""
     reward_values = ensure_float_list(rewards)
-    x_values = episode_indices(len(reward_values))
+    if x_values is None:
+        resolved_x_values = episode_indices(len(reward_values))
+    else:
+        resolved_x_values = ensure_float_list(x_values)
+
     cumulative_rewards = cumulative_sum(reward_values)
     averaged_rewards = moving_average(reward_values, window_size=window_size)
 
     figure, axes_array = plt.subplots(3, 1, figsize=figsize, sharex=True)
     axes = list(axes_array)
 
-    axes[0].plot(x_values, reward_values, color="tab:blue", linewidth=1.8)
-    axes[0].set_title(f"{title_prefix} - Episode Reward")
-    axes[0].set_ylabel("Reward")
+    axes[0].plot(resolved_x_values, reward_values, color="tab:blue", linewidth=1.8)
+    axes[0].set_title(f"{title_prefix} - Step Value")
+    axes[0].set_ylabel("Value")
     axes[0].grid(True, linestyle="--", alpha=0.35)
 
-    axes[1].plot(x_values, averaged_rewards, color="tab:orange", linewidth=2.0)
-    axes[1].set_title(f"{title_prefix} - Moving Average Reward (window={window_size})")
-    axes[1].set_ylabel("Avg Reward")
+    axes[1].plot(resolved_x_values, averaged_rewards, color="tab:orange", linewidth=2.0)
+    axes[1].set_title(f"{title_prefix} - Moving Average (window={window_size})")
+    axes[1].set_ylabel("Moving Avg")
     axes[1].grid(True, linestyle="--", alpha=0.35)
 
-    axes[2].plot(x_values, cumulative_rewards, color="tab:green", linewidth=2.0)
-    axes[2].set_title(f"{title_prefix} - Cumulative Reward")
-    axes[2].set_xlabel("Episode")
-    axes[2].set_ylabel("Cumulative Reward")
+    axes[2].plot(resolved_x_values, cumulative_rewards, color="tab:green", linewidth=2.0)
+    axes[2].set_title(f"{title_prefix} - Cumulative Value")
+    axes[2].set_xlabel(x_label)
+    axes[2].set_ylabel("Cumulative")
     axes[2].grid(True, linestyle="--", alpha=0.35)
 
     figure.tight_layout()

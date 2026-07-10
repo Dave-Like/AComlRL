@@ -22,7 +22,7 @@ from core.experiment.model_build import (
 )
 
 
-DEFAULT_PLOT_WINDOW = 5
+DEFAULT_PLOT_WINDOW = 3
 DEFAULT_OUTPUT_DIR = Path("outputs") / "gig_grpo_experiment"
 
 

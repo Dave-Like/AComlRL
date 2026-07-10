@@ -157,6 +157,8 @@ class GIGGRPOEngine(BaseRLEngine):
             "mean_inner_advantage": stable_mean([float(sample.metadata.get("inner_advantage", 0.0)) for sample in all_train_samples]),
             "mean_scaled_inner_advantage": stable_mean([float(sample.metadata.get("scaled_inner_advantage", 0.0)) for sample in all_train_samples]),
             "mean_combined_advantage": stable_mean([float(sample.metadata.get("combined_advantage", 0.0)) for sample in all_train_samples]),
+            "mean_final_advantage": stable_mean([float(sample.metadata.get("final_advantage", sample.normalized_advantage)) for sample in all_train_samples]),
+            "mean_abs_final_advantage": stable_mean([abs(float(sample.metadata.get("final_advantage", sample.normalized_advantage))) for sample in all_train_samples]),
             "mean_abs_outer_advantage": stable_mean([abs(float(sample.metadata.get("outer_advantage", 0.0))) for sample in all_train_samples]),
             "mean_abs_inner_advantage": stable_mean([abs(float(sample.metadata.get("inner_advantage", 0.0))) for sample in all_train_samples]),
             "mean_abs_scaled_inner_advantage": stable_mean([abs(float(sample.metadata.get("scaled_inner_advantage", 0.0))) for sample in all_train_samples]),

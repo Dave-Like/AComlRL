@@ -201,6 +201,8 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
         )
 
         adjusted_samples: List[EngineTrainSample] = []
+        combined_advantages: List[float] = []
+
         for sample in samples:
             raw_outer_advantage = self._compute_outer_advantage(sample)
             raw_inner_advantage = float(
@@ -232,14 +234,6 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
                 self.combined_advantage_clip,
             )
 
-            sample.normalized_advantage = float(combined_advantage)
-            sample.policy_objective = (
-                sample.importance_ratio * sample.normalized_advantage
-            )
-            sample.clipped_policy_objective = (
-                sample.clipped_ratio * sample.normalized_advantage
-            )
-
             sample.metadata["raw_outer_advantage"] = float(raw_outer_advantage)
             sample.metadata["raw_inner_advantage"] = float(raw_inner_advantage)
             sample.metadata["outer_advantage"] = float(outer_advantage)
@@ -249,7 +243,36 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             sample.metadata["raw_combined_advantage"] = float(raw_combined_advantage)
             sample.metadata["combined_advantage"] = float(combined_advantage)
             sample.metadata["contribution_mode"] = self.contribution_mode
+
             adjusted_samples.append(sample)
+            combined_advantages.append(float(combined_advantage))
+
+        mean_combined = stable_mean(combined_advantages, 0.0)
+        std_combined = stable_std(combined_advantages, 0.0)
+
+        for sample, combined_advantage in zip(adjusted_samples, combined_advantages):
+            if std_combined <= self.advantage_epsilon:
+                final_advantage = 0.0
+            else:
+                final_advantage = (combined_advantage - mean_combined) / std_combined
+
+            final_advantage = self._clip_finite_scalar(
+                final_advantage,
+                self.combined_advantage_clip,
+            )
+
+            sample.normalized_advantage = float(final_advantage)
+            sample.policy_objective = (
+                sample.importance_ratio * sample.normalized_advantage
+            )
+            sample.clipped_policy_objective = (
+                sample.clipped_ratio * sample.normalized_advantage
+            )
+
+            sample.metadata["final_advantage"] = float(final_advantage)
+            sample.metadata["combined_advantage_mean"] = float(mean_combined)
+            sample.metadata["combined_advantage_std"] = float(std_combined)
+
         return adjusted_samples
 
     def _compute_outer_advantage(self, sample: EngineTrainSample) -> float:

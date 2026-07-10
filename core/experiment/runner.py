@@ -511,6 +511,8 @@ def _plot_metric_series(
     plot_window: int,
     show: bool,
 ) -> None:
+    step_values = list(range(1, max((len(values) for values in metric_history.values()), default=0) + 1))
+
     for series in metric_series_specs:
         if not series.enabled_for_plot:
             continue
@@ -527,6 +529,8 @@ def _plot_metric_series(
             title_prefix=series.title_prefix or series.name,
             save_path=output_dir / series.filename,
             show=show,
+            x_values=step_values[: len(values)],
+            x_label="Step",
         )
 
 

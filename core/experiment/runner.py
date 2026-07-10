@@ -373,8 +373,22 @@ def _build_stack(
     tokenizers: Sequence[Any],
     env: CoopHumanEnv,
 ) -> AlgorithmStack:
-    builder = spec.stack_builder or _resolve_default_stack_builder(spec.algorithm_name)
-    return builder(
+    if spec.stack_builder is not None:
+        return spec.stack_builder(
+            config=spec.config,
+            agents=agents,
+            tokenizers=tokenizers,
+            env=env,
+            train_dataset=spec.dataset,
+            eval_dataset=spec.eval_dataset,
+            evaluator=spec.evaluator,
+            generation_kwargs=spec.runtime.generation_kwargs,
+            sample_id_key=spec.runtime.sample_id_key,
+            branch_selection=spec.runtime.branch_selection,
+        )
+
+    return build_algorithm_stack(
+        algorithm_name=spec.algorithm_name,
         config=spec.config,
         agents=agents,
         tokenizers=tokenizers,
@@ -388,16 +402,6 @@ def _build_stack(
     )
 
 
-def _resolve_default_stack_builder(algorithm_name: str):
-    algorithm_name = str(algorithm_name).strip().lower()
-    if algorithm_name == "gig_grpo":
-        return build_gig_grpo_stack
-    if algorithm_name == "magrpo":
-        return build_magrpo_stack
-    raise ValueError(
-        f"Unsupported algorithm_name: {algorithm_name!r}. "
-        "Please provide `spec.stack_builder` for custom algorithms."
-    )
 
 
 def _resolve_default_train_sample_transform(algorithm_name: str):

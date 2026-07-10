@@ -1,0 +1,23 @@
+# Python缓存（核心屏蔽__pycache__）
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 训练输出日志文件夹
+gig_grpo_output/
+outputs/
+nohup.out
+*.log
+
+# 模型权重、缓存文件
+models/
+checkpoints/
+*.bin
+*.safetensors
+.cache/
+
+# VSCode配置、系统垃圾
+.vscode/
+.DS_Store
+*.tmp

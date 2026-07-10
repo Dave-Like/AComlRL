@@ -8,6 +8,7 @@ from core.experiment import (
     ExperimentIOConfig,
     ExperimentRuntimeConfig,
     ExperimentSpec,
+    MetricSeriesSpec,
     run_experiment as run_spec_experiment,
 )
 from core.experiment.che_build import (
@@ -103,6 +104,22 @@ def build_experiment_spec(
             branch_selection="max_reward",
             generation_kwargs={},
         ),
+        round_record_metric_keys=(
+            "mean_return",
+            "mean_advantage",
+            "mean_inner_advantage",
+            "mean_task_score",
+            "mean_counterfactual_score",
+            "mean_update_approx_kl",
+            "mean_policy_loss",
+            "mean_ratio",
+            "positive_advantage_ratio",
+            "mean_abs_final_advantage",
+            "mean_final_advantage",
+            "mean_clipped_ratio",
+            "mean_policy_objective",
+            "mean_clipped_policy_objective",
+        ),
         metadata={
             "model_name": model_name,
             "reset_mode": reset_mode,
@@ -114,6 +131,7 @@ def build_experiment_spec(
             "env_family": "che",
         },
     )
+
 
 
 def run_experiment(

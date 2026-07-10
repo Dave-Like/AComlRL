@@ -160,6 +160,20 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             self.contribution_mix_alpha * task_score
             + (1.0 - self.contribution_mix_alpha) * counterfactual_score
         )
+        
+    def _normalize_branch_scores(
+        self,
+        raw_scores: Dict[int, float],
+    ) -> Dict[int, float]:
+        values = list(raw_scores.values())
+        mean_value = stable_mean(values)
+        std_value = stable_std(values)
+        if std_value <= self.advantage_epsilon:
+            return {branch_idx: 0.0 for branch_idx in raw_scores}
+        return {
+            branch_idx: float((score - mean_value) / std_value)
+            for branch_idx, score in raw_scores.items()
+        }
 
     def _build_adjusted_samples_for_agent(
         self,

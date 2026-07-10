@@ -247,14 +247,14 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
             adjusted_samples.append(sample)
             combined_advantages.append(float(combined_advantage))
 
-        mean_combined = stable_mean(combined_advantages, 0.0)
-        std_combined = stable_std(combined_advantages, 0.0)
+            mean_combined = stable_mean(combined_advantages, 0.0)
+            std_combined = float(stable_std(combined_advantages))
 
-        for sample, combined_advantage in zip(adjusted_samples, combined_advantages):
-            if std_combined <= self.advantage_epsilon:
-                final_advantage = 0.0
-            else:
-                final_advantage = (combined_advantage - mean_combined) / std_combined
+            for sample, combined_advantage in zip(adjusted_samples, combined_advantages):
+                if not math.isfinite(std_combined) or std_combined <= self.advantage_epsilon:
+                    final_advantage = 0.0
+                else:
+                    final_advantage = (combined_advantage - mean_combined) / std_combined
 
             final_advantage = self._clip_finite_scalar(
                 final_advantage,

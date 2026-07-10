@@ -88,16 +88,20 @@ def build_tokenizer(
     *,
     use_fast: bool = False,
     trust_remote_code: bool = True,
+    cache_dir: str | Path | None = None,
+    local_files_only: bool = False,
 ) -> PreTrainedTokenizerBase:
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
         use_fast=use_fast,
         trust_remote_code=trust_remote_code,
+        cache_dir=None if cache_dir is None else str(cache_dir),
+        local_files_only=local_files_only,
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
     return tokenizer
-
 
 def build_base_causal_lm(
     model_name: str,
@@ -207,22 +211,27 @@ def build_models_for_spec(
     trust_remote_code = bool(spec.metadata.get("trust_remote_code", True))
     prepare_kbit_training = bool(spec.metadata.get("prepare_kbit_training", True))
 
+    num_agents = int(spec.config.num_agents)
+
     raw_adapter_dirs = spec.metadata.get("agent_adapter_dirs")
     if raw_adapter_dirs is None:
-        adapter_dirs: List[str | Path | None] = [None] * int(spec.config.num_agents)
+        adapter_dirs: List[str | Path | None] = [None] * num_agents
     else:
         adapter_dirs = list(raw_adapter_dirs)
 
-    if len(adapter_dirs) != int(spec.config.num_agents):
+    if len(adapter_dirs) < num_agents:
+        adapter_dirs = adapter_dirs + [None] * (num_agents - len(adapter_dirs))
+    elif len(adapter_dirs) > num_agents:
         raise ValueError(
-            f"Length of `agent_adapter_dirs` ({len(adapter_dirs)}) must match "
-            f"`config.num_agents` ({spec.config.num_agents})."
+            f"Length of `agent_adapter_dirs` ({len(adapter_dirs)}) must not exceed "
+            f"`config.num_agents` ({num_agents})."
         )
 
     agents: List[PreTrainedModel] = []
     tokenizers: List[PreTrainedTokenizerBase] = []
 
-    for adapter_dir in adapter_dirs:
+    for idx, adapter_dir in enumerate(adapter_dirs):
+        print(f"[model_build] building agent {idx}", flush=True)
         model, tokenizer = build_lora_model(
             model_name,
             reset_mode=reset_mode,
@@ -234,6 +243,7 @@ def build_models_for_spec(
             trust_remote_code=trust_remote_code,
             prepare_kbit_training=prepare_kbit_training,
         )
+        print(f"[model_build] agent {idx} built", flush=True)
         agents.append(model)
         tokenizers.append(tokenizer)
 

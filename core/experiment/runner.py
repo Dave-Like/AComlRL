@@ -48,6 +48,7 @@ def run_experiment(spec: ExperimentSpec) -> Dict[str, Any]:
         }
     )
 
+    logger.log("Stage: building env")
     env = CoopHumanEnv(
         formatters=spec.formatters,
         reward_func=spec.reward_func,
@@ -55,14 +56,20 @@ def run_experiment(spec: ExperimentSpec) -> Dict[str, Any]:
         num_turns=spec.num_turns,
         reward_processor=spec.reward_processor,
     )
+    logger.log("Stage: env built")
 
+    logger.log("Stage: building models")
     agents, tokenizers = _build_models(spec)
+    logger.log("Stage: models built")
+
+    logger.log("Stage: building stack")
     stack = _build_stack(
         spec=spec,
         agents=agents,
         tokenizers=tokenizers,
         env=env,
     )
+    logger.log("Stage: stack built")
 
     metric_series_specs = spec.resolve_metric_series()
     metric_history = {series.name: [] for series in metric_series_specs}

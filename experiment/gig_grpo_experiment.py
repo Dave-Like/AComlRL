@@ -10,7 +10,7 @@ from experiment.gig_grpo_experiment_base import (
 
 def main() -> None:
     spec = build_experiment_spec(
-        rounds=20,
+        rounds=40,
         plot_window=DEFAULT_PLOT_WINDOW,
         output_dir=DEFAULT_OUTPUT_DIR,
         save_adapters=False,

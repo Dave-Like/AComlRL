@@ -119,7 +119,8 @@ class GIGGRPOPolicyUpdater(MAGRPOPolicyUpdater):
                 counterfactual_values: List[float] = []
                 for sample in branch_samples:
                     task_score, task_features = self.contribution_analyzer.task_score(
-                        sample.action_text
+                        text=sample.action_text,
+                        agent_idx=int(sample.agent_idx),
                     )
                     peer_samples = [
                         peer

@@ -82,24 +82,113 @@ class ContributionAnalyzer:
             ignored=float(ignored),
         )
 
-    def task_score(self, text: str) -> tuple[float, Dict[str, float]]:
-        features = self.analyze_task_structure(text)
-        weights = self.task_weights
-        if self.task_combination in {"gatedproduct", "gated_product", "gate", "gated"}:
-            score = (
-                features.exists
-                * features.called
-                * (1.0 + weights["gate_used"] * features.used)
-                * max(0.0, 1.0 - features.ignored)
-            )
-        else:
-            score = (
-                weights["exists"] * features.exists
-                + weights["called"] * features.called
-                + weights["used"] * features.used
-                - weights["ignored"] * features.ignored
-            )
-        return float(score), features.as_dict()
+    def task_score(
+        self,
+        *,
+        text: str,
+        agent_idx: int,
+    ) -> tuple[float, Dict[str, float]]:
+        if int(agent_idx) == 0:
+            return self._task_score_helper_agent(text=text)
+        return self._task_score_main_agent(text=text)
+
+    def _estimate_placeholder_ratio(self, text: str) -> float:
+        lines = [line for line in str(text or "").splitlines() if line.strip()]
+        if not lines:
+            return 1.0
+        junk_lines = sum(
+            1 for line in lines
+            if self._looks_like_placeholder_or_error(line)
+        )
+        return float(min(max(junk_lines / len(lines), 0.0), 1.0))
+
+    def _task_score_helper_agent(
+        self,
+        *,
+        text: str,
+    ) -> tuple[float, Dict[str, float]]:
+        stripped = str(text or "").strip()
+        if not stripped:
+            return -1.0, {
+                "exists": 0.0,
+                "called": 0.0,
+                "used": 0.0,
+                "ignored": 1.0,
+            }
+
+        try:
+            tree = ast.parse(stripped)
+        except SyntaxError:
+            return -1.0, {
+                "exists": 0.0,
+                "called": 0.0,
+                "used": 0.0,
+                "ignored": 1.0,
+            }
+
+        helper_names = self._extract_helper_names(tree)
+        has_structure = 1.0 if self._has_meaningful_python_structure(tree) else 0.0
+        has_helper_defs = 1.0 if helper_names else 0.0
+        ignored = self._estimate_placeholder_ratio(stripped)
+
+        score = (
+            1.0 * has_structure
+            + 1.5 * has_helper_defs
+            - 1.0 * ignored
+        )
+
+        return float(score), {
+            "exists": float(has_structure),
+            "called": 0.0,
+            "used": float(has_helper_defs),
+            "ignored": float(ignored),
+        }
+
+    def _task_score_main_agent(
+        self,
+        *,
+        text: str,
+    ) -> tuple[float, Dict[str, float]]:
+        stripped = str(text or "").strip()
+        if not stripped:
+            return -1.0, {
+                "exists": 0.0,
+                "called": 0.0,
+                "used": 0.0,
+                "ignored": 1.0,
+            }
+
+        try:
+            tree = ast.parse(stripped)
+        except SyntaxError:
+            return -1.0, {
+                "exists": 0.0,
+                "called": 0.0,
+                "used": 0.0,
+                "ignored": 1.0,
+            }
+
+        top_level_defs = self._extract_helper_names(tree)
+        called_names = self._called_function_names(tree)
+
+        has_structure = 1.0 if self._has_meaningful_python_structure(tree) else 0.0
+        has_function_def = 1.0 if top_level_defs else 0.0
+        has_calls = 1.0 if called_names else 0.0
+        ignored = self._estimate_placeholder_ratio(stripped)
+
+        score = (
+            1.0 * has_structure
+            + 1.25 * has_function_def
+            + 0.75 * has_calls
+            - 1.0 * ignored
+        )
+
+        return float(score), {
+            "exists": float(has_structure),
+            "called": float(has_calls),
+            "used": float(has_function_def),
+            "ignored": float(ignored),
+        }
 
     def counterfactual_score(
         self,
@@ -107,12 +196,24 @@ class ContributionAnalyzer:
         sample: EngineTrainSample,
         peer_samples_in_group: Sequence[EngineTrainSample],
     ) -> tuple[float, Dict[str, float]]:
-        current_task_score, _ = self.task_score(sample.action_text)
+        current_task_score, _ = self.task_score(
+            text=sample.action_text,
+            agent_idx=int(sample.agent_idx),
+        )
         ablated_text = self._ablate_helper_content(sample.action_text)
-        ablated_task_score, _ = self.task_score(ablated_text)
+        ablated_task_score, _ = self.task_score(
+            text=ablated_text,
+            agent_idx=int(sample.agent_idx),
+        )
         ablation = current_task_score - ablated_task_score
 
-        peer_task_scores = [self.task_score(peer.action_text)[0] for peer in peer_samples_in_group]
+        peer_task_scores = [
+            self.task_score(
+                text=peer.action_text,
+                agent_idx=int(peer.agent_idx),
+            )[0]
+            for peer in peer_samples_in_group
+        ]
         if peer_task_scores:
             cross = current_task_score - (sum(peer_task_scores) / len(peer_task_scores))
         else:

@@ -8,7 +8,6 @@ from core.experiment import (
     ExperimentIOConfig,
     ExperimentRuntimeConfig,
     ExperimentSpec,
-    MetricSeriesSpec,
     run_experiment as run_spec_experiment,
 )
 from core.experiment.che_build import (
@@ -119,6 +118,12 @@ def build_experiment_spec(
             "mean_clipped_ratio",
             "mean_policy_objective",
             "mean_clipped_policy_objective",
+            "optimizer_steps",
+            "effective_optimizer_steps",
+            "invalid_sample_count",
+            "skipped_nonfinite_steps",
+            "skipped_kl_steps",
+            "skipped_grad_steps",
         ),
         metadata={
             "model_name": model_name,
@@ -131,7 +136,6 @@ def build_experiment_spec(
             "env_family": "che",
         },
     )
-
 
 
 def run_experiment(

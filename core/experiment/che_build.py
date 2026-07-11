@@ -21,24 +21,56 @@ def build_experiment_dataset() -> List[Dict[str, object]]:
     return [
         {
             "id": "task-1",
-            "prompt": "Implement a Python API `normalize_and_group_words(words)` that groups words by normalized lowercase form, removes punctuation, and keeps original spelling order.",
-            "entry_function": "normalize_and_group_words",
-            "required_helpers": ["normalize_word", "group_in_order"],
-            "reward_keywords": ["defaultdict", "isalpha", "append", "lower", "return"],
+            "prompt": (
+                "Implement a Python function `sum_list(nums)` that returns the total sum of all "
+                "numbers in the input list. Also define a helper function `add(a, b)` and use it "
+                "inside `sum_list`."
+            ),
+            "entry_function": "sum_list",
+            "required_helpers": ["add"],
+            "reward_keywords": [
+                "def sum_list",
+                "def add",
+                "for",
+                "return",
+            ],
         },
         {
             "id": "task-2",
-            "prompt": "Implement a Python API `merge_user_events(events)` that sorts by timestamp, merges adjacent events with the same user id, and returns session summaries.",
-            "entry_function": "merge_user_events",
-            "required_helpers": ["sort_events", "merge_adjacent_events"],
-            "reward_keywords": ["sorted", "lambda", "for", "return", "duration"],
+            "prompt": (
+                "Implement a Python function `bubble_sort(arr)` that sorts a list of integers in "
+                "ascending order using the bubble sort algorithm and returns the sorted list. "
+                "Do not use Python built-in sorting functions. Also define a helper function "
+                "`swap(arr, i, j)` and use it during sorting."
+            ),
+            "entry_function": "bubble_sort",
+            "required_helpers": ["swap"],
+            "reward_keywords": [
+                "def bubble_sort",
+                "def swap",
+                "for",
+                "range",
+                "if",
+                "return",
+            ],
         },
         {
             "id": "task-3",
-            "prompt": "Implement a Python API `rank_search_results(records, query)` that tokenizes the query, scores records by token overlap plus recency bonus, and returns top records.",
-            "entry_function": "rank_search_results",
-            "required_helpers": ["tokenize_query", "score_record"],
-            "reward_keywords": ["sorted", "set", "split", "return", "score"],
+            "prompt": (
+                "Implement a Python function `calc_prime_sum(limit)` that returns the sum of all "
+                "prime numbers from 2 to the given limit. Also define a helper function "
+                "`is_prime(n)` to check whether a number is prime, and use it inside "
+                "`calc_prime_sum`."
+            ),
+            "entry_function": "calc_prime_sum",
+            "required_helpers": ["is_prime"],
+            "reward_keywords": [
+                "def calc_prime_sum",
+                "def is_prime",
+                "for",
+                "if",
+                "return",
+            ],
         },
     ]
 

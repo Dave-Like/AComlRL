@@ -1,1 +1,499 @@
-*export HF_ENDPOINT=https://hf-mirror.com
+Starting experiment: gig_grpo_experiment
+{
+  "experiment": {
+    "name": "gig_grpo_experiment",
+    "algorithm_name": "gig_grpo",
+    "num_turns": 2,
+    "dataset_size": 3,
+    "runtime": {
+      "rounds": 40,
+      "plot_window": 3,
+      "save_adapters": false,
+      "sample_id_key": "id",
+      "branch_selection": "max_reward",
+      "generation_kwargs": {}
+    },
+    "io": {
+      "output_dir": "outputs/gig_grpo_experiment",
+      "log_filename": "experiment_log.txt",
+      "enable_console_log": true,
+      "enable_file_log": true,
+      "overwrite_log": true,
+      "save_plots": true,
+      "plot_show": false,
+      "adapter_subdir": "adapters"
+    },
+    "metadata": {
+      "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+      "reset_mode": "base",
+      "agent_adapter_dirs": [
+        null,
+        null
+      ],
+      "experiment_family": "gig_grpo",
+      "env_family": "che"
+    }
+  },
+  "config": {
+    "algorithm_name": "gig_grpo",
+    "num_agents": 2,
+    "num_generations": 6,
+    "max_turns": 2,
+    "batch_size": 1,
+    "discount": 0.99,
+    "normalize_advantages": true,
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "top_k": 30,
+    "max_new_tokens": 220,
+    "do_sample": true,
+    "joint_mode": "aligned",
+    "early_termination_threshold": null,
+    "advantage_mode": "zscore",
+    "advantage_epsilon": 1e-08,
+    "clip_range": 0.2,
+    "kl_coef": 0.02,
+    "learning_rate": 1e-05,
+    "update_epochs": 1,
+    "max_grad_norm": 1.0,
+    "max_safe_kl": 5.0,
+    "outer_advantage_clip": 5.0,
+    "inner_advantage_clip": 3.0,
+    "combined_advantage_clip": 5.0,
+    "inner_scale_mode": "match_outer_mean_abs",
+    "min_inner_scale": 0.5,
+    "max_inner_scale": 3.0,
+    "inner_group_size": 2,
+    "outer_group_size": 6,
+    "contribution_mode": "hybrid",
+    "task_combination": "linear",
+    "contribution_lambda": 1.25,
+    "contribution_mix_alpha": 0.6,
+    "counterfactual_anchor_coef": 0.25,
+    "no_helper_token": "Nohelperutilitycodeavailable"
+  }
+}
+Stage: building env
+Stage: env built
+Stage: building models
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   0%|          | 1/338 [00:00<00:47,  7.11it/s]Loading weights:   2%|▏         | 8/338 [00:00<00:08, 38.70it/s]Loading weights:  12%|█▏        | 41/338 [00:00<00:01, 156.91it/s]Loading weights:  23%|██▎       | 77/338 [00:00<00:01, 231.34it/s]Loading weights:  33%|███▎      | 113/338 [00:00<00:00, 274.04it/s]Loading weights:  45%|████▌     | 153/338 [00:00<00:00, 313.70it/s]Loading weights:  57%|█████▋    | 192/338 [00:00<00:00, 337.95it/s]Loading weights:  68%|██████▊   | 231/338 [00:00<00:00, 348.31it/s]Loading weights:  79%|███████▉  | 268/338 [00:00<00:00, 350.69it/s]Loading weights:  90%|█████████ | 305/338 [00:01<00:00, 351.43it/s]Loading weights: 100%|██████████| 338/338 [00:01<00:00, 297.25it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   0%|          | 1/338 [00:00<00:49,  6.78it/s]Loading weights:   8%|▊         | 28/338 [00:00<00:02, 135.40it/s]Loading weights:  19%|█▉        | 64/338 [00:00<00:01, 220.65it/s]Loading weights:  29%|██▉       | 99/338 [00:00<00:00, 262.79it/s]Loading weights:  38%|███▊      | 127/338 [00:00<00:00, 262.32it/s]Loading weights:  47%|████▋     | 160/338 [00:00<00:00, 281.99it/s]Loading weights:  58%|█████▊    | 196/338 [00:00<00:00, 298.02it/s]Loading weights:  68%|██████▊   | 231/338 [00:00<00:00, 313.05it/s]Loading weights:  79%|███████▉  | 267/338 [00:00<00:00, 324.11it/s]Loading weights:  90%|████████▉ | 303/338 [00:01<00:00, 326.33it/s]Loading weights: 100%|██████████| 338/338 [00:01<00:00, 284.35it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Stage: models built
+Stage: building stack
+Stage: stack built
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/root/miniconda3/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{
+  "round": 1,
+  "epoch_idx": 1,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3078758179013048,
+  "mean_advantage": -1.2432184911167118e-17,
+  "mean_inner_advantage": -5.4200471271630904e-15,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.0196875000000004,
+  "mean_update_approx_kl": 0.0,
+  "mean_policy_loss": 0.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.5,
+  "mean_abs_final_advantage": 0.7890508565820382,
+  "mean_final_advantage": -1.2432184911167118e-17,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": -1.2432184911167118e-17,
+  "mean_clipped_policy_objective": -1.2432184911167118e-17,
+  "optimizer_steps": 0.0,
+  "effective_optimizer_steps": 0.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 2.0,
+  "skipped_grad_steps": 0.0
+}
+{
+  "round": 2,
+  "epoch_idx": 2,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.30692031828511307,
+  "mean_advantage": 1.3492293702041833e-17,
+  "mean_inner_advantage": 5.415421197893819e-15,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.019687500000000722,
+  "mean_update_approx_kl": 0.0,
+  "mean_policy_loss": 0.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.4722222222222222,
+  "mean_abs_final_advantage": 0.8356468907518586,
+  "mean_final_advantage": 1.3492293702041833e-17,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": 1.3492293702041833e-17,
+  "mean_clipped_policy_objective": 1.3492293702041833e-17,
+  "optimizer_steps": 0.0,
+  "effective_optimizer_steps": 0.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 2.0,
+  "skipped_grad_steps": 0.0
+}
+{
+  "round": 3,
+  "epoch_idx": 3,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3081109314776948,
+  "mean_advantage": -5.276450572762788e-18,
+  "mean_inner_advantage": 1.083701030148e-14,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.01968749999999939,
+  "mean_update_approx_kl": 0.0,
+  "mean_policy_loss": 0.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.4444444444444444,
+  "mean_abs_final_advantage": 0.7819143264803188,
+  "mean_final_advantage": -5.276450572762788e-18,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": -5.276450572762788e-18,
+  "mean_clipped_policy_objective": -5.276450572762788e-18,
+  "optimizer_steps": 0.0,
+  "effective_optimizer_steps": 0.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 2.0,
+  "skipped_grad_steps": 0.0
+}
+{
+  "round": 4,
+  "epoch_idx": 4,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3131768136776425,
+  "mean_advantage": -1.927470528863119e-17,
+  "mean_inner_advantage": 2.167093665011382e-14,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.019687500000000264,
+  "mean_update_approx_kl": 0.0,
+  "mean_policy_loss": 0.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.5555555555555556,
+  "mean_abs_final_advantage": 0.811181028484256,
+  "mean_final_advantage": -1.927470528863119e-17,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": -1.927470528863119e-17,
+  "mean_clipped_policy_objective": -1.927470528863119e-17,
+  "optimizer_steps": 0.0,
+  "effective_optimizer_steps": 0.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 2.0,
+  "skipped_grad_steps": 0.0
+}
+Starting experiment: gig_grpo_experiment
+{
+  "experiment": {
+    "name": "gig_grpo_experiment",
+    "algorithm_name": "gig_grpo",
+    "num_turns": 2,
+    "dataset_size": 3,
+    "runtime": {
+      "rounds": 40,
+      "plot_window": 3,
+      "save_adapters": false,
+      "sample_id_key": "id",
+      "branch_selection": "max_reward",
+      "generation_kwargs": {}
+    },
+    "io": {
+      "output_dir": "outputs/gig_grpo_experiment",
+      "log_filename": "experiment_log.txt",
+      "enable_console_log": true,
+      "enable_file_log": true,
+      "overwrite_log": true,
+      "save_plots": true,
+      "plot_show": false,
+      "adapter_subdir": "adapters"
+    },
+    "metadata": {
+      "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+      "reset_mode": "base",
+      "agent_adapter_dirs": [
+        null,
+        null
+      ],
+      "experiment_family": "gig_grpo",
+      "env_family": "che"
+    }
+  },
+  "config": {
+    "algorithm_name": "gig_grpo",
+    "num_agents": 2,
+    "num_generations": 6,
+    "max_turns": 2,
+    "batch_size": 1,
+    "discount": 0.99,
+    "normalize_advantages": true,
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "top_k": 30,
+    "max_new_tokens": 220,
+    "do_sample": true,
+    "joint_mode": "aligned",
+    "early_termination_threshold": null,
+    "advantage_mode": "zscore",
+    "advantage_epsilon": 1e-08,
+    "clip_range": 0.2,
+    "kl_coef": 0.02,
+    "learning_rate": 1e-05,
+    "update_epochs": 1,
+    "max_grad_norm": 1.0,
+    "max_safe_kl": 5.0,
+    "outer_advantage_clip": 5.0,
+    "inner_advantage_clip": 3.0,
+    "combined_advantage_clip": 5.0,
+    "inner_scale_mode": "match_outer_mean_abs",
+    "min_inner_scale": 0.5,
+    "max_inner_scale": 3.0,
+    "inner_group_size": 2,
+    "outer_group_size": 6,
+    "contribution_mode": "hybrid",
+    "task_combination": "linear",
+    "contribution_lambda": 1.25,
+    "contribution_mix_alpha": 0.6,
+    "counterfactual_anchor_coef": 0.25,
+    "no_helper_token": "Nohelperutilitycodeavailable"
+  }
+}
+Stage: building env
+Stage: env built
+Stage: building models
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   1%|          | 3/338 [00:00<00:16, 20.70it/s]Loading weights:  16%|█▌        | 53/338 [00:00<00:01, 252.53it/s]Loading weights:  33%|███▎      | 111/338 [00:00<00:00, 384.28it/s]Loading weights:  49%|████▉     | 165/338 [00:00<00:00, 441.11it/s]Loading weights:  65%|██████▍   | 219/338 [00:00<00:00, 474.21it/s]Loading weights:  81%|████████▏ | 275/338 [00:00<00:00, 500.23it/s]Loading weights:  97%|█████████▋| 328/338 [00:00<00:00, 509.20it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 442.29it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   1%|▏         | 5/338 [00:00<00:06, 48.99it/s]Loading weights:  19%|█▊        | 63/338 [00:00<00:00, 347.94it/s]Loading weights:  33%|███▎      | 113/338 [00:00<00:00, 413.92it/s]Loading weights:  51%|█████     | 171/338 [00:00<00:00, 473.84it/s]Loading weights:  65%|██████▌   | 221/338 [00:00<00:00, 481.95it/s]Loading weights:  83%|████████▎ | 280/338 [00:00<00:00, 510.54it/s]Loading weights:  98%|█████████▊| 331/338 [00:00<00:00, 508.40it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 468.06it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Stage: models built
+Stage: building stack
+Stage: stack built
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/root/miniconda3/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{
+  "round": 1,
+  "epoch_idx": 1,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3032650960380964,
+  "mean_advantage": -3.179121703543607e-17,
+  "mean_inner_advantage": 5.4231310800092715e-15,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.019687500000000167,
+  "mean_update_approx_kl": 0.04974665306508541,
+  "mean_policy_loss": 25475794.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.3888888888888889,
+  "mean_abs_final_advantage": 0.8521745200512889,
+  "mean_final_advantage": -3.179121703543607e-17,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": -3.179121703543607e-17,
+  "mean_clipped_policy_objective": -3.179121703543607e-17,
+  "optimizer_steps": 2.0,
+  "effective_optimizer_steps": 2.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 0.0,
+  "skipped_grad_steps": 0.0
+}
+{
+  "round": 2,
+  "epoch_idx": 2,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3079947311747974,
+  "mean_advantage": 1.380550766298209e-17,
+  "mean_inner_advantage": -3.614392735724121e-15,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.019687499999999518,
+  "mean_update_approx_kl": 0.047865083906799555,
+  "mean_policy_loss": 16824027.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.5833333333333334,
+  "mean_abs_final_advantage": 0.732815374936712,
+  "mean_final_advantage": 1.380550766298209e-17,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": 1.380550766298209e-17,
+  "mean_clipped_policy_objective": 1.380550766298209e-17,
+  "optimizer_steps": 2.0,
+  "effective_optimizer_steps": 2.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 0.0,
+  "skipped_grad_steps": 0.0
+}
+{
+  "round": 3,
+  "epoch_idx": 3,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3082881777935652,
+  "mean_advantage": 5.589664533703045e-18,
+  "mean_inner_advantage": -1.5419764230904951e-18,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.01968749999999966,
+  "mean_update_approx_kl": 0.05454720463603735,
+  "mean_policy_loss": 28595922.0,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.5277777777777778,
+  "mean_abs_final_advantage": 0.8654742543565304,
+  "mean_final_advantage": 5.589664533703045e-18,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": 5.589664533703045e-18,
+  "mean_clipped_policy_objective": 5.589664533703045e-18,
+  "optimizer_steps": 2.0,
+  "effective_optimizer_steps": 2.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 0.0,
+  "skipped_grad_steps": 0.0
+}
+Starting experiment: gig_grpo_experiment
+{
+  "experiment": {
+    "name": "gig_grpo_experiment",
+    "algorithm_name": "gig_grpo",
+    "num_turns": 2,
+    "dataset_size": 3,
+    "runtime": {
+      "rounds": 40,
+      "plot_window": 3,
+      "save_adapters": false,
+      "sample_id_key": "id",
+      "branch_selection": "max_reward",
+      "generation_kwargs": {}
+    },
+    "io": {
+      "output_dir": "outputs/gig_grpo_experiment",
+      "log_filename": "experiment_log.txt",
+      "enable_console_log": true,
+      "enable_file_log": true,
+      "overwrite_log": true,
+      "save_plots": true,
+      "plot_show": false,
+      "adapter_subdir": "adapters"
+    },
+    "metadata": {
+      "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+      "reset_mode": "base",
+      "agent_adapter_dirs": [
+        null,
+        null
+      ],
+      "experiment_family": "gig_grpo",
+      "env_family": "che"
+    }
+  },
+  "config": {
+    "algorithm_name": "gig_grpo",
+    "num_agents": 2,
+    "num_generations": 6,
+    "max_turns": 2,
+    "batch_size": 1,
+    "discount": 0.99,
+    "normalize_advantages": true,
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "top_k": 30,
+    "max_new_tokens": 220,
+    "do_sample": true,
+    "joint_mode": "aligned",
+    "early_termination_threshold": null,
+    "advantage_mode": "zscore",
+    "advantage_epsilon": 1e-08,
+    "clip_range": 0.2,
+    "kl_coef": 0.02,
+    "learning_rate": 1e-05,
+    "update_epochs": 1,
+    "max_grad_norm": 1.0,
+    "max_safe_kl": 5.0,
+    "outer_advantage_clip": 5.0,
+    "inner_advantage_clip": 3.0,
+    "combined_advantage_clip": 5.0,
+    "inner_scale_mode": "match_outer_mean_abs",
+    "min_inner_scale": 0.5,
+    "max_inner_scale": 3.0,
+    "inner_group_size": 2,
+    "outer_group_size": 6,
+    "contribution_mode": "hybrid",
+    "task_combination": "linear",
+    "contribution_lambda": 1.25,
+    "contribution_mix_alpha": 0.6,
+    "counterfactual_anchor_coef": 0.25,
+    "no_helper_token": "Nohelperutilitycodeavailable"
+  }
+}
+Stage: building env
+Stage: env built
+Stage: building models
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   1%|          | 3/338 [00:00<00:16, 20.29it/s]Loading weights:  16%|█▌        | 53/338 [00:00<00:01, 249.16it/s]Loading weights:  33%|███▎      | 111/338 [00:00<00:00, 381.86it/s]Loading weights:  48%|████▊     | 162/338 [00:00<00:00, 428.68it/s]Loading weights:  65%|██████▍   | 219/338 [00:00<00:00, 472.42it/s]Loading weights:  80%|███████▉  | 269/338 [00:00<00:00, 477.68it/s]Loading weights:  97%|█████████▋| 327/338 [00:00<00:00, 508.05it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 434.50it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   1%|▏         | 5/338 [00:00<00:06, 49.37it/s]Loading weights:  19%|█▉        | 64/338 [00:00<00:00, 358.06it/s]Loading weights:  36%|███▋      | 123/338 [00:00<00:00, 451.39it/s]Loading weights:  51%|█████     | 173/338 [00:00<00:00, 463.08it/s]Loading weights:  68%|██████▊   | 231/338 [00:00<00:00, 495.31it/s]Loading weights:  83%|████████▎ | 281/338 [00:00<00:00, 493.65it/s]Loading weights: 100%|██████████| 338/338 [00:00<00:00, 468.91it/s]
+trainable params: 9,232,384 || all params: 1,552,946,688 || trainable%: 0.5945
+Stage: models built
+Stage: building stack
+Stage: stack built
+[transformers] `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+/root/miniconda3/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{
+  "round": 1,
+  "epoch_idx": 1,
+  "num_rollout_batches": 3,
+  "num_nodes": 6,
+  "num_branch_steps": 36,
+  "num_update_batches": 2,
+  "updated": true,
+  "mean_return": 0.3080996317767971,
+  "mean_advantage": 3.854941057726238e-18,
+  "mean_inner_advantage": 3.5989729714932155e-15,
+  "mean_task_score": -1.0,
+  "mean_counterfactual_score": 0.01968749999999982,
+  "mean_update_approx_kl": 0.05761457048356533,
+  "mean_policy_loss": 0.016556359361857176,
+  "mean_ratio": 1.0,
+  "positive_advantage_ratio": 0.5,
+  "mean_abs_final_advantage": 0.9325490350885839,
+  "mean_final_advantage": 3.854941057726238e-18,
+  "mean_clipped_ratio": 1.0,
+  "mean_policy_objective": 3.854941057726238e-18,
+  "mean_clipped_policy_objective": 3.854941057726238e-18,
+  "optimizer_steps": 2.0,
+  "effective_optimizer_steps": 2.0,
+  "invalid_sample_count": 0.0,
+  "skipped_nonfinite_steps": 0.0,
+  "skipped_kl_steps": 0.0,
+  "skipped_grad_steps": 0.0
+}

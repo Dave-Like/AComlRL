@@ -180,7 +180,7 @@ class MAGRPOPolicyUpdater:
         tokenizer: PreTrainedTokenizerBase,
         sample: EngineTrainSample,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float] | None:
-        current_logprob, entropy = self._compute_logprob_and_entropy(
+        current_logprob, entropy, num_completion_tokens = self._compute_logprob_and_entropy(
             model=model,
             tokenizer=tokenizer,
             prompt=sample.agent_prompt,
@@ -200,8 +200,9 @@ class MAGRPOPolicyUpdater:
             sample.metadata["invalid_reason"] = "nonfinite_advantage"
             return None
 
-        log_ratio = current_logprob - current_logprob.new_tensor(old_logprob)
-        log_ratio = torch.clamp(log_ratio, min=-20.0, max=20.0)
+        token_denom = current_logprob.new_tensor(max(int(num_completion_tokens), 1))
+        log_ratio = (current_logprob - current_logprob.new_tensor(old_logprob)) / token_denom
+        log_ratio = torch.clamp(log_ratio, min=-5.0, max=5.0)
         ratio = torch.exp(log_ratio)
 
         advantage = current_logprob.new_tensor(advantage_value)
@@ -220,7 +221,9 @@ class MAGRPOPolicyUpdater:
             if not math.isfinite(ref_logprob):
                 sample.metadata["invalid_reason"] = "nonfinite_ref_logprob"
                 return None
-            approx_kl = current_logprob - current_logprob.new_tensor(ref_logprob)
+
+            token_denom = current_logprob.new_tensor(max(int(num_completion_tokens), 1))
+            approx_kl = (current_logprob - current_logprob.new_tensor(ref_logprob)) / token_denom
             loss = loss + self.kl_coef * approx_kl
 
         if not self._isfinite_tensor(loss) or not self._isfinite_tensor(approx_kl):
@@ -236,7 +239,7 @@ class MAGRPOPolicyUpdater:
         tokenizer: PreTrainedTokenizerBase,
         prompt: str,
         completion: str,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -262,14 +265,16 @@ class MAGRPOPolicyUpdater:
         if pad_token_id is not None:
             completion_mask &= shifted_targets != pad_token_id
 
-        completion_logprob = token_log_probs.masked_select(completion_mask).sum()
+        selected_log_probs = token_log_probs.masked_select(completion_mask)
+        completion_logprob = selected_log_probs.sum()
         entropy_values = token_entropies.masked_select(completion_mask)
         entropy = (
             completion_logprob.new_tensor(0.0)
             if entropy_values.numel() == 0
             else entropy_values.mean()
         )
-        return completion_logprob, entropy
+        num_completion_tokens = int(selected_log_probs.numel())
+        return completion_logprob, entropy, num_completion_tokens
 
     def _normalize_tokenizers(
         self,

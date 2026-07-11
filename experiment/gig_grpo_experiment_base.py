@@ -43,7 +43,7 @@ def build_experiment_config() -> GIG_GRPOConfig:
         learning_rate=1e-5,
         update_epochs=1,
         max_grad_norm=1.0,
-        max_safe_kl=2.0,
+        max_safe_kl=5.0,
         kl_coef=0.02,
         advantage_mode="zscore",
         outer_advantage_clip=5.0,

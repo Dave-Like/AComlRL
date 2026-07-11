@@ -258,6 +258,20 @@ class ContributionAnalyzer:
         return names
 
     @staticmethod
+    def _called_function_names(tree: ast.AST | None) -> set[str]:
+        if tree is None:
+            return set()
+
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    names.add(str(node.func.id))
+                elif isinstance(node.func, ast.Attribute):
+                    names.add(str(node.func.attr))
+        return names
+
+    @staticmethod
     def _estimate_called_ratio(tree: ast.AST | None, helper_names: Sequence[str]) -> float:
         if tree is None or not helper_names:
             return 0.0
